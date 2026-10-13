@@ -1,0 +1,232 @@
+"""cadchat server: serves the 3D viewer, the published models and a chat bridge.
+
+  python tools/cadserver.py [--port 8765] [--root PROJECT_DIR]
+
+Models live in <root>/.cad/models/<id>/ (see cadview.publish_kinematic). Chat messages from the viewer are appended to
+<root>/.cad/inbox.jsonl (watched by the assistant) and <root>/.cad/chat.jsonl (shown in the viewer);
+the assistant answers with tools/cadreply.py.
+"""
+import argparse
+import base64
+import json
+import os
+import re
+import runpy
+import secrets
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
+
+STATIC = Path(__file__).resolve().parent / "static"
+ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css"}
+
+
+class Problem(Exception):
+    def __init__(self, status, msg):
+        super().__init__(msg)
+        self.status, self.msg = status, msg
+
+
+class App:
+    def __init__(self, root, port):
+        self.root = Path(root).resolve()
+        self.cad = self.root / ".cad"
+        (self.cad / "shots").mkdir(parents=True, exist_ok=True)
+        self.token = secrets.token_urlsafe(16)
+        self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        self.lock = threading.Lock()
+        self._scripts = {}
+
+    # ---- models ---------------------------------------------------------------------------------------------
+    def mdir(self, mid):
+        if not mid or not ID_RE.match(mid):
+            raise Problem(400, "bad model id")
+        return self.cad / "models" / mid
+
+    def models(self):
+        out, stamps = [], {}
+        for d in sorted((self.cad / "models").glob("*/model.json")):
+            mid = d.parent.name
+            m = json.loads(d.read_text())
+            stamps[mid] = d.stat().st_mtime_ns // 1000      # microseconds: exact in a JSON number
+            out.append({"id": mid, "built": True, "mtime": stamps[mid], "parts": len(m["parts"]), "joints": len(m["joints"])})
+        for f in sorted((self.root / "parts").glob("*.py")):
+            if not f.stem.startswith("_") and f.stem not in stamps and ID_RE.match(f.stem):
+                out.append({"id": f.stem, "built": False})
+        latest = max(stamps, key=stamps.get) if stamps else None
+        return {"models": out, "latest": latest}, stamps
+
+    def script_of(self, mid):
+        d = self.mdir(mid)
+        rec = d / "script"
+        cand = (self.root / rec.read_text().strip()) if rec.exists() else self.root / "parts" / f"{mid}.py"
+        cand = cand.resolve()
+        if not cand.is_relative_to((self.root / "parts").resolve()) or not cand.is_file():
+            raise Problem(404, "script not found")
+        return cand
+
+    def run_script(self, script):
+        env = {**os.environ, "CADCHAT_ROOT": str(self.root)}
+        r = subprocess.run([sys.executable, str(script)], cwd=self.root, env=env, capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            raise Problem(200, (r.stderr or r.stdout)[-600:])
+
+    def build(self, stem):
+        if not stem or not ID_RE.match(stem):
+            raise Problem(400, "bad script name")
+        script = self.root / "parts" / f"{stem}.py"
+        if not script.is_file():
+            raise Problem(404, "no such script")
+        with self.lock:
+            self.run_script(script)
+
+    def check(self, mid, values):
+        script = self.script_of(mid)
+        pf = self.mdir(mid) / "params.json"
+        stamp = (script.stat().st_mtime_ns, pf.stat().st_mtime_ns if pf.exists() else 0)
+        with self.lock:
+            cached = self._scripts.get(script)
+            if not cached or cached[0] != stamp:
+                ns = runpy.run_path(str(script), run_name="cadcheck")
+                cached = (stamp, ns.get("check_pose"))
+                self._scripts[script] = cached
+            fn = cached[1]
+            return fn(values) if fn else []
+
+    def set_params(self, mid, values):
+        script = self.script_of(mid)
+        f = self.mdir(mid) / "params.json"
+        old = f.read_text() if f.exists() else None
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(values))
+        try:
+            with self.lock:
+                self.run_script(script)
+        except Problem:
+            f.write_text(old) if old is not None else f.unlink()
+            raise
+
+    # ---- chat -----------------------------------------------------------------------------------------------
+    def message(self, d):
+        mid = time.strftime("%H%M%S") + "-" + secrets.token_hex(2)
+        shot = None
+        if str(d.get("shot", "")).startswith("data:image/png;base64,"):
+            shot = f".cad/shots/{mid}.png"
+            (self.root / shot).write_bytes(base64.b64decode(d["shot"].split(",", 1)[1]))
+        msg = {"id": mid, "role": "user", "text": str(d.get("text", ""))[:4000], "model": d.get("m"),
+               "pose": d.get("pose"), "part": d.get("part"), "parts": d.get("parts"), "measure": d.get("measure"),
+               "constraint": d.get("constraint"), "point": d.get("point"), "normal": d.get("normal"), "shot": shot}
+        for name in ("chat.jsonl", "inbox.jsonl"):
+            with open(self.cad / name, "a") as f:
+                f.write(json.dumps(msg) + "\n")
+        return {"ok": True, "id": mid}
+
+
+def make_handler(app):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, code, body, ctype="application/json"):
+            body = body.encode() if isinstance(body, str) else body
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json(self, obj, code=200):
+            self._send(code, json.dumps(obj))
+
+        def _guard(self, fn):
+            try:
+                fn()
+            except Problem as p:
+                if p.status == 200:
+                    self._json({"ok": False, "error": p.msg})
+                else:
+                    self._json({"ok": False, "error": p.msg}, p.status)
+            except Exception as e:                                  # keep the server alive on bad scripts
+                self._json({"ok": False, "error": str(e)[:600]})
+
+        def do_GET(self):
+            if self.headers.get("Host", "") not in app.hosts:
+                return self._send(403, "bad host", "text/plain")
+            u = urlparse(self.path)
+            q = parse_qs(u.query)
+            p = u.path
+            if p.startswith("/api/"):
+                return self._guard(lambda: self._api_get(p, q))
+            rel = "index.html" if p == "/" else unquote(p).lstrip("/")
+            f = (STATIC / rel).resolve()
+            if not f.is_relative_to(STATIC.resolve()) or f.suffix not in TYPES or not f.is_file():
+                return self._send(404, "not found", "text/plain")
+            body = f.read_text().replace("__TOKEN__", app.token) if rel == "index.html" else f.read_bytes()
+            self._send(200, body, TYPES[f.suffix])
+
+        def _api_get(self, p, q):
+            if p == "/api/models":
+                return self._json(app.models()[0])
+            if p == "/api/version":
+                _, stamps = app.models()
+                return self._json({"models": stamps, "latest": max(stamps, key=stamps.get) if stamps else None})
+            if p == "/api/model":
+                f = app.mdir(q.get("m", [""])[0]) / "model.json"
+                if not f.exists():
+                    raise Problem(404, "no such model")
+                return self._send(200, f.read_text())
+            if p == "/api/chat":
+                f = app.cad / "chat.jsonl"
+                lines = f.read_text().splitlines() if f.exists() else []
+                return self._send(200, "[" + ",".join(lines) + "]")
+            raise Problem(404, "not found")
+
+        def do_POST(self):
+            if self.headers.get("Host", "") not in app.hosts or self.headers.get("X-CAD-Token") != app.token:
+                return self._send(403, "forbidden", "text/plain")
+            n = int(self.headers.get("Content-Length", 0))
+            if n > 8_000_000:
+                return self._send(413, "too large", "text/plain")
+            body = json.loads(self.rfile.read(n) or b"{}")
+            p = urlparse(self.path).path
+
+            def run():
+                if p == "/api/message":
+                    return self._json(app.message(body))
+                if p == "/api/build":
+                    app.build(body.get("script"))
+                    return self._json({"ok": True})
+                vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
+                if p == "/api/check":
+                    return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/params":
+                    app.set_params(body.get("m"), vals)
+                    return self._json({"ok": True})
+                raise Problem(404, "not found")
+            self._guard(run)
+    return Handler
+
+
+def make_server(root, port=8765):
+    """Returns (httpd, token). port=0 picks a free port (tests)."""
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), lambda *a, **k: None)
+    app = App(root, httpd.server_address[1])
+    httpd.RequestHandlerClass = make_handler(app)
+    return httpd, app.token
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--root", default=os.environ.get("CADCHAT_ROOT") or str(Path(__file__).resolve().parent.parent))
+    a = ap.parse_args()
+    os.environ["CADCHAT_ROOT"] = str(Path(a.root).resolve())
+    srv, _ = make_server(a.root, a.port)
+    print(f"cadchat on http://127.0.0.1:{srv.server_address[1]}  (project {Path(a.root).resolve()})", flush=True)
+    srv.serve_forever()

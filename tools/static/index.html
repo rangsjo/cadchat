@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CAD chat</title>
+<style>
+:root{--bg:#2b2d31;--panel:#1f2125;--line:#3a3d43;--fg:#e6e6e6;--dim:#9aa0a6;--acc:#f0a830;--user:#2f6fdd}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif;overflow:hidden}
+#view{position:fixed;inset:0}
+#side{position:fixed;left:10px;top:10px;width:330px;max-height:calc(100% - 20px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+#tabs{display:flex;border-bottom:1px solid var(--line)}
+#tabs div{flex:1;text-align:center;padding:7px 2px;font-size:12px;cursor:pointer;color:var(--dim)}
+#tabs div.on{color:var(--fg);border-bottom:2px solid var(--acc)}
+.pane{display:none;overflow:auto;padding:8px}.pane.on{display:block}
+h4{margin:10px 2px 4px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+h4:first-child{margin-top:2px}
+.btn{display:inline-block;background:#33363c;border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:4px 9px;margin:2px;cursor:pointer;font:inherit}
+.btn.on{background:var(--acc);color:#111;border-color:var(--acc)}
+.row{padding:2px 6px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row:hover{background:#33363c}.row.sel{background:var(--acc);color:#111}
+.sl{margin:5px 2px}.sl label{display:flex;justify-content:space-between;gap:6px;color:var(--dim)}.sl label b{color:var(--fg);font-weight:500}
+.sl input[type=range]{width:100%;accent-color:var(--acc)}
+.chip{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.con{padding:4px 6px;border-radius:5px;cursor:pointer;border-left:3px solid var(--k);margin:3px 0;background:#262a30}
+.con:hover{background:#33363c}.con.sel{outline:1px solid var(--acc)}.con small{display:block;color:var(--dim)}
+.par{display:grid;grid-template-columns:1fr 70px;gap:4px 8px;align-items:center;margin:3px 2px}.par span small{color:var(--dim);display:block}
+.par input{width:100%;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:3px 5px;font:inherit}
+.par input.chg{border-color:var(--acc)}
+#coll{margin:4px 2px 8px;padding:6px 8px;border-radius:6px;background:#233a27;color:#9be3a8}
+#coll.bad{background:#4a2323;color:#ffb0a8}
+#legend div{margin:2px 0}
+body.insp #tip{display:none!important}
+.cut{display:grid;grid-template-columns:1fr 32px 1.5fr 48px;gap:6px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px}
+.cut span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cut:hover{background:#33363c}.cut.sel{background:var(--acc);color:#111}
+#modelBar{display:flex;gap:6px;padding:8px 8px 2px}#modelBar select{flex:1;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:4px 6px;font:inherit}
+#modelStat{padding:0 10px 6px;color:var(--dim);font-size:12px;min-height:14px}
+#bedBox input,.par input{background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:3px 5px;font:inherit}
+.cut.bad{color:#ffb0a8}.cut small{color:var(--dim);margin-left:4px}.lb.bad{color:#ffb0a8;background:#4a2323cc}
+.cut.cur{outline:1px solid var(--acc)}
+.cut.h{cursor:default;color:var(--dim);border-bottom:1px solid var(--line)}.cut.h:hover{background:none}
+.lb.g{color:#9aa0a6;background:#0006;font-size:11px}
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.lb{position:absolute;transform:translate(-50%,-50%);background:#000b;color:#ffd27a;padding:1px 6px;border-radius:4px;font-size:12px;white-space:nowrap}
+.lb.m{color:#7ad0ff;font-size:13px}.lb.j{color:#fff;font-size:11px}
+#tip{position:fixed;pointer-events:none;background:#000c;padding:3px 7px;border-radius:5px;display:none;font-size:12px}
+#info{position:fixed;left:350px;bottom:10px;right:70px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--dim)}
+#chat{position:fixed;width:340px;max-height:60%;display:none;flex-direction:column;background:var(--panel);border:1px solid var(--acc);border-radius:10px;box-shadow:0 8px 30px #0008}
+#chat header{padding:7px 10px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;cursor:move;user-select:none}
+#chat header b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#chat header span{cursor:pointer;color:var(--dim)}
+#log{flex:1;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px;min-height:80px}
+.m{padding:6px 9px;border-radius:8px;max-width:90%;white-space:pre-wrap;word-break:break-word}
+.m.user{background:var(--user);align-self:flex-end}.m.assistant{background:#33363c;align-self:flex-start}
+.m.status{color:var(--dim);font-style:italic;align-self:center}.m small{display:block;opacity:.7;font-size:11px}
+#chat form{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}
+#chat input[type=text]{flex:1;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:6px 8px;font:inherit}
+#chat label{display:flex;align-items:center;gap:4px;padding:0 10px 8px;color:var(--dim)}
+#fab{position:fixed;right:14px;bottom:14px;width:46px;height:46px;border-radius:50%;background:var(--acc);color:#111;border:0;font-size:20px;cursor:pointer}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<div id="view"></div>
+<div id="side">
+  <div id="modelBar"><select id="modelSel" title="Switch model"></select><span class="btn" id="modelRebuild" title="Run the model's script again">⟳</span></div>
+  <div id="modelStat"></div>
+  <div id="tabs"><div data-p="pose" class="on">Pose</div><div data-p="cons">Constraints</div><div data-p="par">Parameters</div><div data-p="parts">Parts</div><div data-p="make">Make</div></div>
+  <div class="pane on" id="p-pose">
+    <h4>Presets</h4><div id="presets"></div>
+    <div id="coll">Checking collisions…</div>
+    <h4>Joints <label style="float:right;text-transform:none;letter-spacing:0"><input type="checkbox" id="link" checked> link L/R</label></h4>
+    <div id="joints"></div>
+    <h4>View</h4><div><span class="btn" id="vIso">Iso</span><span class="btn" id="vTop">Top</span><span class="btn" id="vFront">Front</span><span class="btn" id="vSide">Side</span><span class="btn" id="vFit">Fit</span></div>
+    <h4>Tools</h4><div><span class="btn" id="tIso" title="I">Isolate</span><span class="btn" id="tDim" title="D">Dimensions</span><span class="btn" id="tSec" title="S">Section</span><span class="btn" id="tMeas" title="M">Measure</span><span class="btn" id="tClear" title="Esc">Clear</span></div>
+    <div id="secBox" style="display:none;margin:6px 2px;padding:8px;border-radius:6px;background:#262a30">
+      <h4>Section planes (static)</h4>
+      <div id="planeList"></div>
+      <div id="planeNone" style="display:none;color:var(--dim);margin:4px 2px">No section planes. The model is shown whole.</div>
+      <div style="margin:4px 0"><span class="btn" id="planeAdd">+ New plane</span><span class="btn" id="planeOff" title="hide all planes and stop cutting">All off</span><span class="btn" id="planeDel">Delete</span><span class="btn" id="planeDelAll">Delete all</span><span class="btn" id="planeReset">Reset</span></div>
+      <div id="planeEd"><h4>Edit selected plane</h4>
+      <input type="text" id="secName" style="width:100%;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:3px 6px;font:inherit;margin-bottom:4px">
+      <div id="secAx"><span class="btn on" data-a="0">X (length)</span><span class="btn" data-a="1">Y (depth)</span><span class="btn" data-a="2">Z (height)</span></div>
+      <input type="range" id="secWorld" min="0" max="100" value="50" step="1" style="width:100%;accent-color:var(--acc)">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap"><span id="secWorldV" style="color:var(--dim)"></span><span><span class="btn" id="secFlip">Flip side</span><span class="btn" id="secPick">Pick on model</span></span></div>
+      <label style="color:var(--dim)"><input type="checkbox" id="secCaps" checked> show cut faces</label></div>
+    </div>
+  </div>
+  <div class="pane" id="p-cons">
+    <h4>Colour parts by</h4><div id="colors"></div>
+    <div id="legend"></div>
+    <h4>Show in 3D</h4><div><span class="btn on" id="sAxes">Joint axes</span><span class="btn on" id="sLinks">Connections</span></div>
+    <h4>Constraints <span id="ccount"></span></h4><div id="cons"></div>
+  </div>
+  <div class="pane" id="p-par">
+    <div id="params"></div>
+    <div style="margin:8px 2px"><span class="btn on" id="pApply">Apply &amp; rebuild</span><span class="btn" id="pReset">Defaults</span></div>
+    <div id="pstat" style="color:var(--dim);margin:2px"></div>
+  </div>
+  <div class="pane" id="p-parts"><div id="parts"></div></div>
+  <div class="pane" id="p-make">
+    <h4>Manufacturing layout</h4>
+    <div style="color:var(--dim);margin:2px">Every distinct part laid flat on the 100 mm grid, longest side along X, thinnest side up, first part at the origin. Identical parts are merged into one with a quantity.</div>
+    <div style="margin:6px 0"><span class="btn on" id="mOver">Overview</span><span class="btn" id="mInsp">Inspect parts</span></div>
+    <div id="inspBox" style="display:none;margin:4px 2px 8px;padding:8px;border-radius:6px;background:#262a30"><div id="insp"></div><div style="margin-top:6px"><span class="btn" id="stlPart" title="This part lying flat, ready to print">Download STL</span></div><h4>Cross section</h4>
+      <div id="secAxis"><span class="btn on" data-a="0">across L</span><span class="btn" data-a="1">across W</span><span class="btn" data-a="2">across T</span></div>
+      <input type="range" id="secPos" min="0" max="100" value="50" style="width:100%;accent-color:var(--acc)">
+      <label style="color:var(--dim)"><input type="checkbox" id="secClip" checked> also cut the 3D view</label>
+      <div style="color:var(--dim)">Tip: click the part in the 3D view to place the cut there.</div>
+      <div id="secInfo" style="color:var(--dim);margin:4px 0"></div>
+      <div style="color:var(--dim);margin-top:6px">◀ ▶ or ← → keys browse the parts. Drag in the 3D view to orbit. Double-click a part in the overview to open it.</div></div>
+    <div style="margin:6px 0"><select id="proc" style="background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:4px 6px;font:inherit"><option value="wood">Woodworking / sheet goods</option><option value="print">3D printing</option></select></div>
+    <div id="bedBox" style="display:none;margin:2px 2px 6px;color:var(--dim)">Print bed (mm)
+      <input type="number" id="bedX" style="width:56px"> × <input type="number" id="bedY" style="width:56px"> × <input type="number" id="bedZ" style="width:56px"> (x, y, height)</div>
+    <div style="margin:6px 0"><span class="btn" id="mFit">Fit view</span><span class="btn" id="cutCsv">Cut list CSV</span><span class="btn" id="layPng">Save PNG</span></div>
+    <div id="cutsum" style="color:var(--dim);margin:2px 2px 6px"></div>
+    <div id="cut"></div>
+    <div id="plates"></div>
+  </div>
+</div>
+<div id="tip"></div>
+<div id="labels"></div>
+<div id="info"><span id="infotxt">Click a part to select it (Shift/Ctrl-click for several).</span> <span class="btn" id="prev" title="←">◀</span><span class="btn" id="next" title="→">▶</span><span class="btn" id="ask">💬 Ask about selection</span></div>
+<div id="chat"><header id="chead"><b id="ctitle">Chat with Claude</b><span id="cclose">✕</span></header>
+  <div id="log"></div>
+  <label><input type="checkbox" id="shot" checked> attach screenshot</label>
+  <form id="form"><input type="text" id="msg" placeholder="e.g. make this leg 60 mm" autocomplete="off"><button class="btn on" type="submit">Send</button></form></div>
+<button id="fab" title="Chat">💬</button>
+<script>window.CAD_TOKEN="__TOKEN__";</script>
+<script type="module" src="/app.js"></script>
+</body></html>
