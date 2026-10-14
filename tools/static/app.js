@@ -9,6 +9,14 @@ import { defaultPlanes as defaultPlanesFor, clipPlane, storageKey } from "./lib/
 import { chooseModel, publishedSince } from "./lib/models.js";
 
 const $ = (id) => document.getElementById(id);
+// If the server was restarted with a new token (an old version without a persisted token), reload once to pick it up.
+const rawFetch = window.fetch.bind(window);
+let reloading = false;
+window.fetch = async (...a) => {
+  const r = await rawFetch(...a);
+  if (r.status === 403 && !reloading) { reloading = true; location.reload(); }
+  return r;
+};
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(devicePixelRatio);
 $("view").appendChild(renderer.domElement);
@@ -1144,6 +1152,8 @@ $("form").onsubmit = async (e) => {
   poll();
 };
 let shown = 0;
+let connOk = true;
+function setConn(ok) { if (ok !== connOk) { connOk = ok; $("conn").style.display = ok ? "none" : "block"; } }
 async function poll() {
   try {
     const msgs = await (await fetch("/api/chat")).json();
@@ -1177,7 +1187,8 @@ async function poll() {
     if (listChanged) await refreshList();
     if (changed && changed !== curModel) await switchModel(changed);          // a script just published a model: show it
     else if (v.models[curModel] !== undefined && v.models[curModel] !== modelStamp) await loadModel(curModel, false);
-  } catch (e) { /* server restarting */ }
+    setConn(true);
+  } catch (e) { setConn(false); /* server restarting: keep polling, the page recovers by itself */ }
 }
 async function refreshList() {
   const r = await (await fetch("/api/models")).json();

@@ -54,6 +54,7 @@ body.insp #tip{display:none!important}
 #chat input[type=text]{flex:1;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:6px 8px;font:inherit}
 #chat label{display:flex;align-items:center;gap:4px;padding:0 10px 8px;color:var(--dim)}
 #fab{position:fixed;right:14px;bottom:14px;width:46px;height:46px;border-radius:50%;background:var(--acc);color:#111;border:0;font-size:20px;cursor:pointer}
+#conn{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#4a2323;color:#ffb0a8;border:1px solid #7a3a3a;border-radius:8px;padding:6px 12px;display:none;z-index:20}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head><body>
@@ -114,6 +115,7 @@ body.insp #tip{display:none!important}
     <div id="plates"></div>
   </div>
 </div>
+<div id="conn">Server not reachable, retrying every second. Restart it with: <code>cadchat restart</code></div>
 <div id="tip"></div>
 <div id="labels"></div>
 <div id="info"><span id="infotxt">Click a part to select it (Shift/Ctrl-click for several).</span> <span class="btn" id="prev" title="←">◀</span><span class="btn" id="next" title="→">▶</span><span class="btn" id="ask">💬 Ask about selection</span></div>

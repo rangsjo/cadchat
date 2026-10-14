@@ -26,4 +26,4 @@ Start from `./cadchat new mechanism NAME` (a hinged-lid box); the finished refer
 
 **Tests:** acceptance tests in `tests/python` (see `test_folding_table.py`): every preset collision-free, expected sizes, and one deliberately wrong pose that must be caught. Write them before changing joints or geometry.
 
-**Workflow:** run the script (prints each preset's size and collisions), fix until clean, `tools/cadstart.sh`, open the viewer, drag the sliders. When the viewer reports a collision, reproduce it with `check_pose({...})` in a script and fix the geometry or the joint limits.
+**Workflow:** run the script (prints each preset's size and collisions), fix until clean, `./cadchat start`, open the viewer, drag the sliders. When the viewer reports a collision, reproduce it with `check_pose({...})` in a script and fix the geometry or the joint limits.

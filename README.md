@@ -30,7 +30,8 @@ the viewer sends what you clicked, together with a screenshot, to an AI assistan
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ./cadchat run folding_table      # build the example mechanism
-./cadchat serve                  # http://127.0.0.1:8765
+./cadchat start                  # viewer in the background: http://127.0.0.1:8765
+./cadchat restart                # after changing tools/*.py; open pages reconnect by themselves
 ```
 
 Create your own:

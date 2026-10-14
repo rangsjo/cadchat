@@ -85,12 +85,29 @@ class App:
         self.root = Path(root).resolve()
         self.cad = self.root / ".cad"
         (self.cad / "shots").mkdir(parents=True, exist_ok=True)
-        self.token = secrets.token_urlsafe(16)
+        self.token = self._load_token()
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         self.lock = threading.Lock()
         self._scripts = {}
         self._meta = {}
         self.worker = Worker(self.root)
+
+    def _load_token(self):
+        """Persisted in .cad/token so pages that are already open keep working after the server is restarted."""
+        f = self.cad / "token"
+        try:
+            t = f.read_text(encoding="utf-8").strip()
+            if len(t) >= 16:
+                return t
+        except OSError:
+            pass
+        t = secrets.token_urlsafe(16)
+        f.write_text(t, encoding="utf-8")
+        try:
+            os.chmod(f, 0o600)
+        except OSError:
+            pass
+        return t
 
     # ---- models ---------------------------------------------------------------------------------------------
     def mdir(self, mid):
@@ -312,7 +329,15 @@ if __name__ == "__main__":
     ap.add_argument("--root", default=os.environ.get("CADCHAT_ROOT") or str(Path(__file__).resolve().parent.parent))
     a = ap.parse_args()
     os.environ["CADCHAT_ROOT"] = str(Path(a.root).resolve())
-    srv, _ = make_server(a.root, a.port)
+    try:
+        srv, _ = make_server(a.root, a.port)
+    except OSError as e:
+        print(f"cannot listen on port {a.port}: {e}. Another program (or another cadchat) uses it: ./cadchat status, ./cadchat restart", file=sys.stderr)
+        raise SystemExit(2)
+    info = Path(a.root) / ".cad" / "server.json"
+    info.write_text(json.dumps({"pid": os.getpid(), "port": srv.server_address[1], "started": time.time()}), encoding="utf-8")
+    import atexit
+    atexit.register(lambda: info.unlink(missing_ok=True))
     threading.Thread(target=srv.app.worker.start, daemon=True).start()          # pre-warm: first rebuild is fast too
     print(f"cadchat on http://127.0.0.1:{srv.server_address[1]}  (project {Path(a.root).resolve()})", flush=True)
     srv.serve_forever()

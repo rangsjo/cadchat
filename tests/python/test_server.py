@@ -238,3 +238,18 @@ def test_upload_rejects_bad_names_types_and_missing_token(server):
         c = http.client.HTTPConnection("127.0.0.1", server.port, timeout=30)
         c.request("POST", f"/api/import?{query}", b"x", {**ok_host, **hdr})
         assert c.getresponse().status == code, query
+
+
+# ---- restarts must not break open pages -------------------------------------------------------------------------------
+def test_token_survives_a_server_restart(project):
+    _, t1 = cadserver.make_server(project, port=0)
+    _, t2 = cadserver.make_server(project, port=0)
+    assert t1 == t2 and len(t1) >= 16
+    assert (project / ".cad" / "token").read_text(encoding="utf-8").strip() == t1
+
+
+def test_a_damaged_token_file_is_replaced(project):
+    (project / ".cad").mkdir()
+    (project / ".cad" / "token").write_text("x", encoding="utf-8")
+    _, t = cadserver.make_server(project, port=0)
+    assert len(t) >= 16 and (project / ".cad" / "token").read_text(encoding="utf-8").strip() == t

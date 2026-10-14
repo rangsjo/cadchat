@@ -1,0 +1,3 @@
+@echo off
+rem Windows counterpart of ./cadchat:  cadchat start | restart | stop | status, new part NAME, run NAME, import FILE ...
+"%~dp0.venv\Scripts\python.exe" "%~dp0tools\cadchat.py" %*

@@ -6,7 +6,7 @@ Units are mm, z is up.
 
 ## Commands
 - Setup: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`
-- Viewer: `./cadchat serve` (http://127.0.0.1:8765), new model: `./cadchat new part NAME` or `./cadchat new mechanism NAME`
+- Viewer: `./cadchat start` / `restart` / `stop` / `status` (http://127.0.0.1:8765; `serve` runs it in the foreground), new model: `./cadchat new part NAME` or `./cadchat new mechanism NAME`
 - Import from Creo or any CAD: `./cadchat import FILE.step`, `./cadchat watch FOLDER` (see `docs/CREO.md`)
 - Build a model: `./cadchat run NAME` (publishes it to `.cad/models/NAME/`; the viewer reloads by itself)
 - Tests: `.venv/bin/python -m pytest -q` and `node --test tests/js/*.test.js`
