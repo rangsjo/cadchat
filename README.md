@@ -20,6 +20,7 @@ the viewer sends what you clicked, together with a screenshot, to an AI assistan
   Top/Front/Right views, a 3D view and a movable cross section.
   *Woodworking*: material totals. *3D printing*: bed size check and print plates exported as STL.
 - **Import and export**: STEP and STL in (button, drag and drop, `./cadchat import`, or `./cadchat watch FOLDER` for a Creo export folder); STEP assemblies with part names, STL and 3MF out. See [docs/CREO.md](docs/CREO.md).
+- **Creo link (experimental branch)**: change a Creo parameter from the viewer and get the regenerated geometry back; one Windows command starts it all. See [creo/README.md](creo/README.md).
 - **Fast**: a warm build worker (rebuild in ~0.6 s instead of 2.7 s), cached polling, binary meshes. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 - **Chat bridge**: click a part, type "make this 60 mm", get the change and an answer. The viewer shows whether the assistant
   is listening and where each message stands (sent, seen, working, answered); nothing is lost while it is away. Works with any assistant that can
