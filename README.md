@@ -19,6 +19,8 @@ the viewer sends what you clicked, together with a screenshot, to an AI assistan
 - **Make tab**: every distinct part laid flat on a 100 mm grid with dimensions, a cut list (CSV), a part inspector with
   Top/Front/Right views, a 3D view and a movable cross section.
   *Woodworking*: material totals. *3D printing*: bed size check and print plates exported as STL.
+- **Import and export**: STEP and STL in (button, drag and drop, `./cadchat import`, or `./cadchat watch FOLDER` for a Creo export folder); STEP assemblies with part names, STL and 3MF out. See [docs/CREO.md](docs/CREO.md).
+- **Fast**: a warm build worker (rebuild in ~0.6 s instead of 2.7 s), cached polling, binary meshes. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 - **Chat bridge**: click a part, type "make this 60 mm", get the change and an answer. Works with any assistant that can
   watch `.cad/inbox.jsonl`; the repository ships skills for Claude Code in `.claude/skills/`.
 
@@ -38,6 +40,8 @@ Create your own:
 ./cadchat new mechanism lidbox       # parts + joints + presets + collision check
 ./cadchat run bracket2               # build and publish; the viewer switches to it
 ./cadchat list
+./cadchat import part.step            # a STEP/STL from Creo or any CAD system
+./cadchat watch ~/creo_exports       # import every export that appears
 ```
 
 A model script is plain Python: parameters at the top, geometry with build123d, then `publish_kinematic(...)`.
@@ -51,7 +55,7 @@ node --test tests/js/*.test.js         # layout, slicing, STL, section planes, m
 ```
 
 The project is developed test first, see [CONTRIBUTING.md](CONTRIBUTING.md). A ready-made GitHub Actions workflow is in `docs/ci-workflow.yml` (copy it to `.github/workflows/ci.yml`). Design notes, the data format, the HTTP API,
-the security model and an evaluation of a Rust rewrite are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+the security model are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); measured speed and the Rust question are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Layout
 

@@ -3,7 +3,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { roleColors, roleOf } from "./lib/roles.js";
 import { groupParts, orientation, gridLayout, bedCheck, packPlates } from "./lib/layout.js";
 import { sliceLoops as sliceCore } from "./lib/slice.js";
-import { toAsciiStl } from "./lib/stl.js";
+import { toBinaryStl } from "./lib/stl.js";
+import { decodeMesh } from "./lib/mesh.js";
 import { defaultPlanes as defaultPlanesFor, clipPlane, storageKey } from "./lib/planes.js";
 import { chooseModel, publishedSince } from "./lib/models.js";
 
@@ -134,8 +135,9 @@ function build() {
   jointsByName = Object.fromEntries(model.joints.map((j) => [j.name, j]));
   for (const p of model.parts) {
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(p.v, 3));
-    g.setIndex(p.t);
+    const mesh = decodeMesh(p.v64, p.t64);
+    g.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
+    g.setIndex(new THREE.BufferAttribute(mesh.index, 1));
     g.computeVertexNormals();
     const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xd9a066, roughness: 0.7, metalness: 0.05 }));
     m.matrixAutoUpdate = false;
@@ -681,9 +683,9 @@ function buildPlates() {
   const lost = [...r.unplaced, ...tooTall];
   if (lost.length) { const d = document.createElement("div"); d.className = "con"; d.style.setProperty("--k", "#e06666"); d.innerHTML = `Does not fit: ${lost.join(", ")}<small>bigger than the bed or taller than ${bed.z} mm</small>`; host.appendChild(d); }
 }
-function download(name, text, type = "text/plain") {
+function download(name, data, type = "text/plain") {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.href = URL.createObjectURL(new Blob([data], { type }));
   a.download = name; a.click();
 }
 const meshOf = (g, matrix) => ({ positions: g.meshes[0].geometry.attributes.position.array, index: g.meshes[0].geometry.index.array, matrix: matrix.elements });
@@ -694,10 +696,10 @@ function downloadPlate(i, byId) {
     if (it.turned) place.multiply(new THREE.Matrix4().makeTranslation(g.dims[1], 0, 0)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
     return meshOf(g, place.multiply(g.base));
   });
-  download(`${model.name || curModel}_plate${i + 1}.stl`, toAsciiStl(`plate${i + 1}`, meshes), "model/stl");
+  download(`${model.name || curModel}_plate${i + 1}.stl`, toBinaryStl(meshes), "model/stl");
 }
 $("mFit").onclick = () => { if (inspectMode) setInspect(false); fitLayout(); };
-$("stlPart").onclick = () => { if (inspG) download(`${inspG.label}.stl`, toAsciiStl(inspG.label, [meshOf(inspG, inspG.base)]), "model/stl"); };
+$("stlPart").onclick = () => { if (inspG) download(`${inspG.label}.stl`, toBinaryStl([meshOf(inspG, inspG.base)]), "model/stl"); };
 $("cutCsv").onclick = () => {
   const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
   const rows = [["part", "quantity", "length_mm", "width_mm", "thickness_mm", "volume_cm3_each", "material", "names"]];
@@ -1216,6 +1218,20 @@ async function loadModel(id, fresh) {
   if (fresh) { if (layoutMode) fitLayout(); else look(0.6, -0.6, 0.5); }
 }
 $("modelSel").onchange = (e) => switchModel(e.target.value);
+async function importFile(f) {
+  const ext = f.name.split(".").pop().toLowerCase();
+  const name = f.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]/g, "_").replace(/^[_-]+/, "") || "import";
+  $("modelStat").textContent = `Importing ${f.name}…`;
+  const r = await (await fetch(`/api/import?name=${encodeURIComponent(name)}&ext=${ext}`, { method: "POST", headers: { "X-CAD-Token": window.CAD_TOKEN }, body: f })).json();
+  if (!r.ok) { $("modelStat").textContent = "Import failed: " + r.error; return; }
+  await refreshList();
+  stamps = (await (await fetch("/api/version")).json()).models;
+  await switchModel(name);
+}
+$("modelImport").onclick = () => $("importFile").click();
+$("importFile").onchange = (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ""; };
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && /\.(step|stp|stl)$/i.test(f.name)) importFile(f); });
 $("modelRebuild").onclick = async () => {
   if (!curModel) return;
   $("modelStat").textContent = "Rebuilding…";

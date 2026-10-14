@@ -13,11 +13,11 @@ def build(project, name, params=None):
     d = project / ".cad" / "models" / name
     if params:
         d.mkdir(parents=True, exist_ok=True)
-        (d / "params.json").write_text(json.dumps(params))
+        (d / "params.json").write_text(json.dumps(params), encoding="utf-8")
     env = {**os.environ, "CADCHAT_ROOT": str(project)}
     r = subprocess.run([sys.executable, str(REPO / "parts" / f"{name}.py")], cwd=project, env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-800:]
-    return json.loads((d / "model.json").read_text())
+    return json.loads((d / "model.json").read_text(encoding="utf-8"))
 
 
 def test_shaft_default_volume_and_size(project):

@@ -5,6 +5,7 @@ from pathlib import Path
 from build123d import *
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import exchange
 from cadview import load_params, params_out, publish_kinematic
 
 PARAMS = {  # name: (default, unit, group, description)
@@ -37,7 +38,7 @@ if __name__ == "__main__":
     print(f"size {bb.size.X:.1f} x {bb.size.Y:.1f} x {bb.size.Z:.1f} mm | volume {part.volume:.1f} mm3 | keyway removed {plain_volume - part.volume:.1f} mm3")
     assert part.is_valid
     Path("exports").mkdir(exist_ok=True)
-    export_step(part, "exports/shaft.step")
+    exchange.export_step_assembly([("shaft", part)], "exports/shaft.step", name="shaft")
     export_stl(part, "exports/shaft.stl")
     publish_kinematic([dict(name="shaft", shape=part, joint=None, role="shaft", material="steel")], [], {"default": {}},
                       "parts/shaft.py", params_out(PARAMS, V))

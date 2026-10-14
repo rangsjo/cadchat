@@ -5,6 +5,7 @@ import sys
 from build123d import *
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import exchange
 from cadview import publish_kinematic
 
 # Parameters (mm): keep every dimension here so it can be changed in one line.
@@ -22,6 +23,6 @@ if __name__ == "__main__":
     print(f"size {bb.size.X:.1f} x {bb.size.Y:.1f} x {bb.size.Z:.1f} mm | volume {part.volume / 1000:.1f} cm3")
     assert part.is_valid, "invalid solid"
     Path("exports").mkdir(exist_ok=True)
-    export_step(part, "exports/NAME.step")
+    exchange.export_step_assembly([("NAME", part)], "exports/NAME.step", name="NAME")      # named product, opens as a tree in Creo and others
     export_stl(part, "exports/NAME.stl")
     publish_kinematic([dict(name="NAME", shape=part, joint=None)], [], {"default": {}}, "parts/NAME.py")

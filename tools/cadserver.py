@@ -13,6 +13,7 @@ import os
 import re
 import runpy
 import secrets
+import select
 import subprocess
 import sys
 import threading
@@ -21,7 +22,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-STATIC = Path(__file__).resolve().parent / "static"
+HERE = Path(__file__).resolve().parent
+STATIC = HERE / "static"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css"}
 
@@ -30,6 +32,52 @@ class Problem(Exception):
     def __init__(self, status, msg):
         super().__init__(msg)
         self.status, self.msg = status, msg
+
+
+class Worker:
+    """Talks to tools/cadworker.py; started on first use, restarted if it dies, times out or tools/*.py changed."""
+
+    def __init__(self, root):
+        self.root, self.proc, self.pid, self.started = Path(root), None, None, 0.0
+
+    def start(self):
+        self.stop()
+        log = open(self.root / ".cad" / "worker.log", "ab")
+        env = {**os.environ, "CADCHAT_ROOT": str(self.root)}
+        self.proc = subprocess.Popen([sys.executable, str(HERE / "cadworker.py")], cwd=self.root, env=env,
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log)
+        self.pid, self.started = self.proc.pid, time.time()
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+        self.proc, self.pid = None, None
+
+    def _stale(self):
+        return any(f.stat().st_mtime > self.started for f in HERE.glob("*.py"))
+
+    def _readline(self, timeout):
+        buf, fd, end = b"", self.proc.stdout.fileno(), time.time() + timeout
+        while not buf.endswith(b"\n"):
+            left = end - time.time()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                raise TimeoutError
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                raise EOFError
+            buf += chunk
+        return buf
+
+    def request(self, req, timeout=300):
+        if self.proc is None or self.proc.poll() is not None or self._stale():
+            self.start()
+        try:
+            self.proc.stdin.write((json.dumps(req) + "\n").encode())
+            self.proc.stdin.flush()
+            return json.loads(self._readline(timeout))
+        except (TimeoutError, EOFError, BrokenPipeError):
+            self.stop()
+            return {"ok": False, "error": "the build worker stopped or timed out; it will be restarted", "out": ""}
 
 
 class App:
@@ -41,6 +89,8 @@ class App:
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         self.lock = threading.Lock()
         self._scripts = {}
+        self._meta = {}
+        self.worker = Worker(self.root)
 
     # ---- models ---------------------------------------------------------------------------------------------
     def mdir(self, mid):
@@ -48,33 +98,41 @@ class App:
             raise Problem(400, "bad model id")
         return self.cad / "models" / mid
 
+    def stamps(self):
+        """{model id: microseconds since epoch of model.json}; stats files only, never parses them."""
+        return {f.parent.name: f.stat().st_mtime_ns // 1000 for f in (self.cad / "models").glob("*/model.json")}
+
     def models(self):
-        out, stamps = [], {}
-        for d in sorted((self.cad / "models").glob("*/model.json")):
-            mid = d.parent.name
-            m = json.loads(d.read_text())
-            stamps[mid] = d.stat().st_mtime_ns // 1000      # microseconds: exact in a JSON number
-            out.append({"id": mid, "built": True, "mtime": stamps[mid], "parts": len(m["parts"]), "joints": len(m["joints"])})
+        stamps, out = self.stamps(), []
+        for mid in sorted(stamps):
+            c = self._meta.get(mid)
+            if not c or c[0] != stamps[mid]:                     # parse only when the file changed
+                try:
+                    m = json.loads((self.cad / "models" / mid / "model.json").read_text(encoding="utf-8"))
+                    c = (stamps[mid], len(m["parts"]), len(m["joints"]))
+                except (ValueError, KeyError):
+                    c = (stamps[mid], 0, 0)
+                self._meta[mid] = c
+            out.append({"id": mid, "built": True, "mtime": stamps[mid], "parts": c[1], "joints": c[2]})
         for f in sorted((self.root / "parts").glob("*.py")):
             if not f.stem.startswith("_") and f.stem not in stamps and ID_RE.match(f.stem):
                 out.append({"id": f.stem, "built": False})
         latest = max(stamps, key=stamps.get) if stamps else None
-        return {"models": out, "latest": latest}, stamps
+        return {"models": out, "latest": latest}
 
     def script_of(self, mid):
         d = self.mdir(mid)
         rec = d / "script"
-        cand = (self.root / rec.read_text().strip()) if rec.exists() else self.root / "parts" / f"{mid}.py"
+        cand = (self.root / rec.read_text(encoding="utf-8").strip()) if rec.exists() else self.root / "parts" / f"{mid}.py"
         cand = cand.resolve()
         if not cand.is_relative_to((self.root / "parts").resolve()) or not cand.is_file():
             raise Problem(404, "script not found")
         return cand
 
     def run_script(self, script):
-        env = {**os.environ, "CADCHAT_ROOT": str(self.root)}
-        r = subprocess.run([sys.executable, str(script)], cwd=self.root, env=env, capture_output=True, text=True, timeout=300)
-        if r.returncode != 0:
-            raise Problem(200, (r.stderr or r.stdout)[-600:])
+        r = self.worker.request({"script": str(script)})
+        if not r["ok"]:
+            raise Problem(200, r["error"] or r.get("out", "")[-600:])
 
     def build(self, stem):
         if not stem or not ID_RE.match(stem):
@@ -85,7 +143,25 @@ class App:
         with self.lock:
             self.run_script(script)
 
+    def import_file(self, name, ext, data):
+        if not ID_RE.match(name or "") or ext not in ("step", "stp", "stl"):
+            raise Problem(400, "bad model name or file type")
+        d = self.cad / "imports"
+        d.mkdir(exist_ok=True)
+        f = d / f"{name}.{ext}"
+        f.write_bytes(data)
+        with self.lock:
+            r = self.worker.request({"import": str(f), "name": name})
+        if not r["ok"]:
+            raise Problem(200, r["error"])
+
     def check(self, mid, values):
+        d = self.mdir(mid)
+        if not (d / "model.json").exists():
+            raise Problem(404, "no such model")
+        rec = d / "script"
+        if not rec.exists() or not rec.read_text(encoding="utf-8").strip():          # imported models have no script: nothing to check
+            return []
         script = self.script_of(mid)
         pf = self.mdir(mid) / "params.json"
         stamp = (script.stat().st_mtime_ns, pf.stat().st_mtime_ns if pf.exists() else 0)
@@ -101,14 +177,14 @@ class App:
     def set_params(self, mid, values):
         script = self.script_of(mid)
         f = self.mdir(mid) / "params.json"
-        old = f.read_text() if f.exists() else None
+        old = f.read_text(encoding="utf-8") if f.exists() else None
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps(values))
+        f.write_text(json.dumps(values), encoding="utf-8")
         try:
             with self.lock:
                 self.run_script(script)
         except Problem:
-            f.write_text(old) if old is not None else f.unlink()
+            f.write_text(old, encoding="utf-8") if old is not None else f.unlink()
             raise
 
     # ---- chat -----------------------------------------------------------------------------------------------
@@ -122,7 +198,7 @@ class App:
                "pose": d.get("pose"), "part": d.get("part"), "parts": d.get("parts"), "measure": d.get("measure"),
                "constraint": d.get("constraint"), "point": d.get("point"), "normal": d.get("normal"), "shot": shot}
         for name in ("chat.jsonl", "inbox.jsonl"):
-            with open(self.cad / name, "a") as f:
+            with open(self.cad / name, "a", encoding="utf-8") as f:
                 f.write(json.dumps(msg) + "\n")
         return {"ok": True, "id": mid}
 
@@ -167,23 +243,23 @@ def make_handler(app):
             f = (STATIC / rel).resolve()
             if not f.is_relative_to(STATIC.resolve()) or f.suffix not in TYPES or not f.is_file():
                 return self._send(404, "not found", "text/plain")
-            body = f.read_text().replace("__TOKEN__", app.token) if rel == "index.html" else f.read_bytes()
+            body = f.read_text(encoding="utf-8").replace("__TOKEN__", app.token) if rel == "index.html" else f.read_bytes()
             self._send(200, body, TYPES[f.suffix])
 
         def _api_get(self, p, q):
             if p == "/api/models":
-                return self._json(app.models()[0])
+                return self._json(app.models())
             if p == "/api/version":
-                _, stamps = app.models()
+                stamps = app.stamps()
                 return self._json({"models": stamps, "latest": max(stamps, key=stamps.get) if stamps else None})
             if p == "/api/model":
                 f = app.mdir(q.get("m", [""])[0]) / "model.json"
                 if not f.exists():
                     raise Problem(404, "no such model")
-                return self._send(200, f.read_text())
+                return self._send(200, f.read_text(encoding="utf-8"))
             if p == "/api/chat":
                 f = app.cad / "chat.jsonl"
-                lines = f.read_text().splitlines() if f.exists() else []
+                lines = f.read_text(encoding="utf-8").splitlines() if f.exists() else []
                 return self._send(200, "[" + ",".join(lines) + "]")
             raise Problem(404, "not found")
 
@@ -191,10 +267,18 @@ def make_handler(app):
             if self.headers.get("Host", "") not in app.hosts or self.headers.get("X-CAD-Token") != app.token:
                 return self._send(403, "forbidden", "text/plain")
             n = int(self.headers.get("Content-Length", 0))
+            u = urlparse(self.path)
+            if u.path == "/api/import":
+                if n > 200_000_000:
+                    return self._send(413, "too large", "text/plain")
+                q = parse_qs(u.query)
+                data = self.rfile.read(n)
+                return self._guard(lambda: (app.import_file(q.get("name", [""])[0], q.get("ext", [""])[0].lower(), data),
+                                            self._json({"ok": True})))
             if n > 8_000_000:
                 return self._send(413, "too large", "text/plain")
             body = json.loads(self.rfile.read(n) or b"{}")
-            p = urlparse(self.path).path
+            p = u.path
 
             def run():
                 if p == "/api/message":
@@ -218,6 +302,7 @@ def make_server(root, port=8765):
     httpd = ThreadingHTTPServer(("127.0.0.1", port), lambda *a, **k: None)
     app = App(root, httpd.server_address[1])
     httpd.RequestHandlerClass = make_handler(app)
+    httpd.app = app
     return httpd, app.token
 
 
@@ -228,5 +313,6 @@ if __name__ == "__main__":
     a = ap.parse_args()
     os.environ["CADCHAT_ROOT"] = str(Path(a.root).resolve())
     srv, _ = make_server(a.root, a.port)
+    threading.Thread(target=srv.app.worker.start, daemon=True).start()          # pre-warm: first rebuild is fast too
     print(f"cadchat on http://127.0.0.1:{srv.server_address[1]}  (project {Path(a.root).resolve()})", flush=True)
     srv.serve_forever()

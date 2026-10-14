@@ -44,6 +44,6 @@ if __name__ == "__main__":
 def write_script(project):
     def _w(name, kind="static"):
         text = (STATIC_SCRIPT if kind == "static" else MECH_SCRIPT).format(tools=str(REPO / "tools"), name=name)
-        (project / "parts" / f"{name}.py").write_text(text)
+        (project / "parts" / f"{name}.py").write_text(text, encoding="utf-8")
         return project / "parts" / f"{name}.py"
     return _w

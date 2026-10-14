@@ -16,7 +16,9 @@
 | `parts/*.py`, `templates/` | Python + build123d | Define geometry, joints, parameters; publish a model |
 | `tools/kinematics.py` | Python | Revolute-joint posing, mirrored joints, collision check (`Mechanism`) |
 | `tools/cadview.py` | Python | Tessellate and write `model.json`; read parameter overrides |
-| `tools/cadserver.py` | Python (stdlib) | Static files, model listing, collision check, parameter rebuild, chat bridge |
+| `tools/cadserver.py` | Python (stdlib) | Static files, model listing, collision check, parameter rebuild, import, chat bridge |
+| `tools/cadworker.py` | Python | Warm process that runs scripts and imports (build123d loaded once) |
+| `tools/exchange.py` | Python | STEP assembly export, STEP/STL import, 3MF/STL export |
 | `tools/static/app.js` | JavaScript + three.js | Viewer UI (DOM, WebGL) |
 | `tools/static/lib/*.js` | JavaScript (pure) | Roles, grouping and grid layout, plate packing, slicing, STL, planes, model choice |
 
@@ -24,7 +26,7 @@
 
 ```
 { name, default,
-  parts:       [{name, joint, role, material, volume, bbox[6], v[], t[]}],   v = xyz triples, t = triangle indices
+  parts:       [{name, joint, role, material, volume, bbox[6], v64, t64}],   v64 = base64 float32 xyz, t64 = base64 uint32 triangle indices
   joints:      [{name, label, group, parent, origin[3], axis[3], min, max}], revolute, degrees, base-frame axes
   presets:     {presetName: {jointName: degrees}},
   params:      [{name, value, default, unit, group, desc}],
@@ -43,7 +45,8 @@ Parts are published in a reference pose. A part moves with the chain of its join
 | `GET /api/model?m=ID` | One `model.json` |
 | `POST /api/check {m, values}` | Collision pairs for a pose, from the script's `check_pose` (none if it has none) |
 | `POST /api/params {m, values}` | Save parameter overrides and rebuild that model |
-| `POST /api/build {script}` | Run `parts/<script>.py` |
+| `POST /api/build {script}` | Run `parts/<script>.py` in the warm worker |
+| `POST /api/import?name=&ext=` | Upload a STEP/STL (raw body) and publish it as a model |
 | `POST /api/message`, `GET /api/chat` | Chat bridge |
 
 ## Security model
@@ -61,26 +64,10 @@ code-CAD project. Chat messages are data for the assistant, not commands the ser
   works for any model, which is what made the model switcher possible.
 - **Pure logic in `lib/`.** Anything testable without a browser lives there and is covered by `node --test`.
 
-## Evaluation: rewrite in Rust?
+## Rust
 
-**Recommendation: not now.** Keep Python for geometry and a web viewer; spend the effort on structure instead.
-
-- *CAD kernel.* build123d wraps OpenCascade, which is mature (booleans, fillets, STEP). Rust options are young:
-  `opencascade-rs` binds the same C++ kernel (so no gain), `truck` is a pure-Rust kernel without robust booleans and
-  fillets. A rewrite would trade a working modeller for a missing one.
-- *Server.* It is ~200 lines of glue that must run Python scripts anyway. Rust (axum) would give a single binary but no
-  speed that matters here; the cost is in the CAD scripts, not HTTP.
-- *Viewer.* A native Rust viewer (wgpu/bevy/egui) would rebuild what three.js and the DOM already give: orbit controls,
-  labels, panels, text input for chat, screenshots. The chat popup and the panels are exactly where the browser shines.
-- *Performance.* The measured hot spots are Python-side (collision checks, tessellation, about a second for 33 parts). The
-  viewer's slicing and layout run in milliseconds on these sizes.
-
-Where Rust could pay off later, in this order:
-1. **Desktop packaging with Tauri** (Rust shell around the same web UI, Python as a sidecar): a double-click app without
-   rewriting anything.
-2. **WASM modules** for hot pure functions (`slice.js`, `packPlates`) if meshes get large. The unit tests in
-   `tests/js` are the contract, so a Rust implementation can be dropped in and verified.
-3. **A Rust server** only if a single static binary becomes a requirement.
+Measured, not assumed: see [PERFORMANCE.md](PERFORMANCE.md). The short version: the time is in OpenCascade and process start-up, not in our
+Python or JavaScript. The one promising Rust experiment is mesh-based collision (BVH) as a faster alternative to OpenCascade booleans.
 
 ## Roadmap ideas
 

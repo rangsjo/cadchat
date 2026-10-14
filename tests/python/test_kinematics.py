@@ -73,3 +73,34 @@ def test_presets_fill_missing_joints_with_zero():
 def test_unknown_joint_value_is_rejected():
     with pytest.raises(KeyError):
         lid_mechanism().posed({"nope": 10})
+
+
+# ---- speed: pairs that move together are computed once ---------------------------------------------------------------
+def three_part_mechanism(cache=True):
+    parts = [dict(name="body", shape=box_at(0, 0, 0), joint=None),
+             dict(name="rib", shape=box_at(4, 0, 0), joint=None),                  # overlaps the body, never moves
+             dict(name="lid", shape=box_at(0, 0, 10), joint="hinge")]
+    joints = [dict(name="hinge", label="Hinge", group="g", parent=None, origin=[-5, 0, 5], axis=[0, -1, 0], min=0, max=180)]
+    return Mechanism(parts, joints, {"d": {}}, cache=cache)
+
+
+def test_pairs_that_do_not_move_relative_to_each_other_are_computed_once():
+    m = three_part_mechanism()
+    m.check({})
+    first = m.stats["boolean_calls"]
+    m.check({"hinge": 30})
+    m.check({"hinge": 60})
+    # body/rib is rigid in every pose: only the pairs involving the lid are recomputed
+    assert m.stats["boolean_calls"] - first <= 2 * (first - 1)
+
+
+def test_cached_and_uncached_checks_agree_in_every_pose():
+    a, b = three_part_mechanism(cache=True), three_part_mechanism(cache=False)
+    for angle in (0, 15, 45, 90, -45, -90, 120):
+        assert a.check({"hinge": angle}) == b.check({"hinge": angle}), angle
+
+
+def test_rigid_overlap_is_still_reported_from_the_cache():
+    m = three_part_mechanism()
+    for angle in (0, 30):
+        assert any(sorted(h[:2]) == ["body", "rib"] for h in m.check({"hinge": angle}))

@@ -11,10 +11,10 @@ def run(script):
 
 def test_publish_goes_to_a_directory_named_after_the_script(project, write_script):
     run(write_script("bracket"))
-    m = json.loads((project / ".cad" / "models" / "bracket" / "model.json").read_text())
+    m = json.loads((project / ".cad" / "models" / "bracket" / "model.json").read_text(encoding="utf-8"))
     assert m["name"] == "bracket"
     assert [p["name"] for p in m["parts"]] == ["block"]
-    assert (project / ".cad" / "models" / "bracket" / "script").read_text() == "parts/bracket.py"
+    assert (project / ".cad" / "models" / "bracket" / "script").read_text(encoding="utf-8") == "parts/bracket.py"
 
 
 def test_two_scripts_publish_side_by_side(project, write_script):
@@ -25,7 +25,7 @@ def test_two_scripts_publish_side_by_side(project, write_script):
 
 def test_published_part_bbox_and_volume(project, write_script):
     run(write_script("blk"))
-    p = json.loads((project / ".cad" / "models" / "blk" / "model.json").read_text())["parts"][0]
+    p = json.loads((project / ".cad" / "models" / "blk" / "model.json").read_text(encoding="utf-8"))["parts"][0]
     assert p["bbox"] == [-5, -10, -15, 5, 10, 15]
     assert abs(p["volume"] - 6000) < 1
 
@@ -34,9 +34,9 @@ def test_params_override_comes_from_the_models_own_file(project, write_script):
     script = write_script("m", "mech")
     d = project / ".cad" / "models" / "m"
     d.mkdir(parents=True)
-    (d / "params.json").write_text(json.dumps({"w": 50}))
+    (d / "params.json").write_text(json.dumps({"w": 50}), encoding="utf-8")
     run(script)
-    m = json.loads((d / "model.json").read_text())
+    m = json.loads((d / "model.json").read_text(encoding="utf-8"))
     assert m["params"][0]["value"] == 50 and m["params"][0]["default"] == 10
     assert m["parts"][0]["bbox"][3] == 25
 
@@ -44,7 +44,7 @@ def test_params_override_comes_from_the_models_own_file(project, write_script):
 def test_load_params_ignores_other_models(project):
     other = project / ".cad" / "models" / "other"
     other.mkdir(parents=True)
-    (other / "params.json").write_text(json.dumps({"w": 99}))
+    (other / "params.json").write_text(json.dumps({"w": 99}), encoding="utf-8")
     assert cadview.load_params(project / "parts" / "mine.py", {"w": (10, "mm", "g", "d")}) == {"w": 10.0}
 
 
@@ -52,5 +52,18 @@ def test_role_and_material_are_published(project):
     from build123d import Box
     cadview.publish_kinematic([dict(name="leg_1", shape=Box(1, 1, 1), joint=None, role="leg", material="oak")],
                               [], {"default": {}}, "parts/x.py")
-    p = json.loads((project / ".cad" / "models" / "x" / "model.json").read_text())["parts"][0]
+    p = json.loads((project / ".cad" / "models" / "x" / "model.json").read_text(encoding="utf-8"))["parts"][0]
     assert (p["role"], p["material"]) == ("leg", "oak")
+
+
+def test_meshes_are_published_as_compact_binary_not_json_arrays(project):
+    import base64
+    import struct
+    from build123d import Box
+    cadview.publish_kinematic([dict(name="b", shape=Box(2, 2, 2), joint=None)], [], {"default": {}}, "parts/x.py")
+    p = json.loads((project / ".cad" / "models" / "x" / "model.json").read_text(encoding="utf-8"))["parts"][0]
+    assert "v" not in p and "t" not in p
+    verts = struct.unpack(f"<{len(base64.b64decode(p['v64'])) // 4}f", base64.b64decode(p["v64"]))
+    tris = struct.unpack(f"<{len(base64.b64decode(p['t64'])) // 4}I", base64.b64decode(p["t64"]))
+    assert len(tris) == 36 and max(tris) < len(verts) // 3          # a box is 12 triangles
+    assert {round(abs(c)) for c in verts} == {1}                     # all corners at +-1

@@ -9,6 +9,7 @@ import sys
 from build123d import *
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import exchange
 from cadview import load_params, params_out, publish_kinematic
 from kinematics import Mechanism
 
@@ -60,5 +61,5 @@ if __name__ == "__main__":
         bb = comp.bounding_box()
         hits = check_pose(vals)
         print(f"{name:8s} {bb.size.X:.0f} x {bb.size.Y:.0f} x {bb.size.Z:.0f} mm | collisions: {hits or 'none'}")
-        export_step(comp, f"exports/NAME_{name}.step")
+        exchange.export_step_assembly(pp, f"exports/NAME_{name}.step", name=f"NAME_{name}")       # one STEP product per part
     publish_kinematic(parts, joints, mech.presets, "parts/NAME.py", params_json, constraints)

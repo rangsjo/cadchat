@@ -59,7 +59,7 @@ body.insp #tip{display:none!important}
 </head><body>
 <div id="view"></div>
 <div id="side">
-  <div id="modelBar"><select id="modelSel" title="Switch model"></select><span class="btn" id="modelRebuild" title="Run the model's script again">⟳</span></div>
+  <div id="modelBar"><select id="modelSel" title="Switch model"></select><span class="btn" id="modelRebuild" title="Run the model's script again">⟳</span><span class="btn" id="modelImport" title="Import a STEP or STL file (or drop it on the viewer)">⇪</span><input type="file" id="importFile" accept=".step,.stp,.stl" hidden></div>
   <div id="modelStat"></div>
   <div id="tabs"><div data-p="pose" class="on">Pose</div><div data-p="cons">Constraints</div><div data-p="par">Parameters</div><div data-p="parts">Parts</div><div data-p="make">Make</div></div>
   <div class="pane on" id="p-pose">

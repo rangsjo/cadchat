@@ -19,7 +19,7 @@ def server(project):
         pass
 
     s = S()
-    s.port, s.token, s.root = port, token, project
+    s.port, s.token, s.root, s.httpd = port, token, project, httpd
 
     def call(method, path, body=None, token=token, host=None):
         c = http.client.HTTPConnection("127.0.0.1", port, timeout=120)
@@ -76,7 +76,7 @@ def test_empty_project_lists_no_models(server):
 
 def test_unbuilt_scripts_are_listed_and_can_be_built(server, write_script):
     write_script("plate")
-    (server.root / "parts" / "_private.py").write_text("x = 1")
+    (server.root / "parts" / "_private.py").write_text("x = 1", encoding="utf-8")
     r = server.call("GET", "/api/models")[1]
     assert [(m["id"], m["built"]) for m in r["models"]] == [("plate", False)]
     build(server, write_script, "plate")
@@ -137,7 +137,7 @@ def test_changed_script_is_reloaded(server, write_script):
     server.call("POST", "/api/build", {"script": "mech"})
     server.call("POST", "/api/check", {"m": "mech", "values": {}})
     time.sleep(0.05)
-    path.write_text(path.read_text().replace('int(values.get("j", 0))', "99"))
+    path.write_text(path.read_text(encoding="utf-8").replace('int(values.get("j", 0))', "99"))
     assert server.call("POST", "/api/check", {"m": "mech", "values": {}})[1]["collisions"][0][2] == 99
 
 
@@ -161,7 +161,7 @@ def test_params_are_saved_per_model_and_rebuild_that_model(server, write_script)
 def test_params_rebuild_failure_is_reported(server, write_script):
     path = write_script("bad", "mech")
     server.call("POST", "/api/build", {"script": "bad"})
-    path.write_text("raise RuntimeError('boom')")
+    path.write_text("raise RuntimeError('boom')", encoding="utf-8")
     r = server.call("POST", "/api/params", {"m": "bad", "values": {"w": 1}})[1]
     assert r["ok"] is False and "boom" in r["error"]
 
@@ -170,6 +170,71 @@ def test_params_rebuild_failure_is_reported(server, write_script):
 def test_messages_land_in_the_inbox_with_their_model(server):
     status, r = server.call("POST", "/api/message", {"m": "table", "text": "make it taller", "parts": ["leg_1"]})
     assert status == 200 and r["ok"]
-    line = json.loads((server.root / ".cad" / "inbox.jsonl").read_text().splitlines()[-1])
+    line = json.loads((server.root / ".cad" / "inbox.jsonl").read_text(encoding="utf-8").splitlines()[-1])
     assert line["text"] == "make it taller" and line["model"] == "table" and line["parts"] == ["leg_1"]
     assert server.call("GET", "/api/chat")[1][-1]["text"] == "make it taller"
+
+
+# ---- speed: polling must stay cheap, rebuilds must reuse a warm interpreter --------------------------------------------
+def test_version_only_stats_files_it_never_parses_them(server, write_script):
+    build(server, write_script, "a")
+    (server.root / ".cad" / "models" / "a" / "model.json").write_text("this is not json", encoding="utf-8")
+    status, r = server.call("GET", "/api/version")
+    assert status == 200 and "a" in r["models"]
+
+
+def test_model_listing_is_cached_until_the_file_changes(server, write_script, monkeypatch):
+    build(server, write_script, "a")
+    real, calls = json.loads, []
+    monkeypatch.setattr(cadserver.json, "loads", lambda s, *a, **k: (calls.append(1) if '"constraints"' in str(s) else None, real(s, *a, **k))[1])      # count model.json parses only
+    server.call("GET", "/api/models")
+    server.call("GET", "/api/models")
+    assert len(calls) == 1
+    time.sleep(0.05)
+    server.call("POST", "/api/build", {"script": "a"})
+    server.call("GET", "/api/models")
+    assert len(calls) == 2
+
+
+def test_rebuilds_are_served_by_one_warm_worker(server, write_script):
+    build(server, write_script, "a")
+    pid1 = server.httpd.app.worker.pid
+    server.call("POST", "/api/build", {"script": "a"})
+    assert pid1 and server.httpd.app.worker.pid == pid1
+
+
+def test_worker_survives_a_failing_script(server, write_script):
+    path = write_script("bad", "mech")
+    build(server, write_script, "good")
+    pid = server.httpd.app.worker.pid
+    path.write_text("raise RuntimeError('boom')", encoding="utf-8")
+    assert server.call("POST", "/api/build", {"script": "bad"})[1]["ok"] is False
+    assert server.call("POST", "/api/build", {"script": "good"})[1]["ok"] is True
+    assert server.httpd.app.worker.pid == pid
+
+
+# ---- import through the API ------------------------------------------------------------------------------------------
+def test_uploaded_step_file_becomes_a_model(server, tmp_path):
+    from build123d import Box
+    import exchange
+    f = tmp_path / "u.step"
+    exchange.export_step_assembly([("slab", Box(10, 20, 5))], f, name="u")
+    data = f.read_bytes()
+    c = http.client.HTTPConnection("127.0.0.1", server.port, timeout=120)
+    c.request("POST", "/api/import?name=slab&ext=step", data, {"Host": f"127.0.0.1:{server.port}", "X-CAD-Token": server.token})
+    r = c.getresponse()
+    body = json.loads(r.read())
+    assert r.status == 200 and body["ok"], body
+    m = server.call("GET", "/api/model?m=slab")[1]
+    assert [p["name"] for p in m["parts"]] == ["slab"]
+    assert server.call("POST", "/api/check", {"m": "slab", "values": {}})[1] == {"ok": True, "collisions": []}     # imported: no script
+
+
+def test_upload_rejects_bad_names_types_and_missing_token(server):
+    ok_host = {"Host": f"127.0.0.1:{server.port}"}
+    for query, hdr, code in [("name=../x&ext=step", {"X-CAD-Token": server.token}, 400),
+                             ("name=a&ext=exe", {"X-CAD-Token": server.token}, 400),
+                             ("name=a&ext=step", {}, 403)]:
+        c = http.client.HTTPConnection("127.0.0.1", server.port, timeout=30)
+        c.request("POST", f"/api/import?{query}", b"x", {**ok_host, **hdr})
+        assert c.getresponse().status == code, query

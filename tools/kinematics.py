@@ -23,11 +23,12 @@ def mirrored_joint(j, suffix):
 
 
 class Mechanism:
-    def __init__(self, parts, joints, presets, exempt=None):
+    def __init__(self, parts, joints, presets, exempt=None, cache=True):
         self.parts, self.joints = parts, joints
         self.jmap = {j["name"]: j for j in joints}
         self.presets = {k: {n: v.get(n, 0) for n in self.jmap} for k, v in presets.items()}
         self.exempt = exempt or (lambda a, b: False)        # pairs that legitimately touch/overlap (hardware, tenons)
+        self.cache, self.stats, self._rigid = cache, {"boolean_calls": 0}, {}
 
     def posed(self, values):
         unknown = set(values) - set(self.jmap)
@@ -45,9 +46,21 @@ class Mechanism:
             out.append((p["name"], shape))
         return out
 
+    def _chain(self, part, values):
+        """Joints (with their angles) that actually move this part; parts with equal chains move as one rigid body."""
+        chain, j = [], part.get("joint")
+        while j:
+            a = float(values.get(j, 0))
+            if a:
+                chain.append((j, a))
+            j = self.jmap[j]["parent"]
+        return tuple(chain)
+
     def check(self, values, min_volume=1.0):
-        """[[partA, partB, overlap_mm3], ...] for pairs that overlap by more than min_volume."""
+        """[[partA, partB, overlap_mm3], ...] for pairs that overlap by more than min_volume.
+        Pairs that do not move relative to each other are computed once and reused in every pose."""
         pp = self.posed(values)
+        chains = [self._chain(p, values) for p in self.parts]
         bbs = [s.bounding_box() for _, s in pp]
         hits = []
         for i, j in combinations(range(len(pp)), 2):
@@ -57,8 +70,15 @@ class Mechanism:
                 continue
             if self.exempt(pp[i][0], pp[j][0]):
                 continue
-            v = pp[i][1].intersect(pp[j][1])
-            vol = sum(s.volume for s in v) if v else 0
+            rigid = self.cache and chains[i] == chains[j]
+            if rigid and (i, j) in self._rigid:
+                vol = self._rigid[(i, j)]
+            else:
+                v = pp[i][1].intersect(pp[j][1])
+                self.stats["boolean_calls"] += 1
+                vol = sum(s.volume for s in v) if v else 0
+                if rigid:
+                    self._rigid[(i, j)] = vol
             if vol > min_volume:
                 hits.append([pp[i][0], pp[j][0], round(vol)])
         return hits

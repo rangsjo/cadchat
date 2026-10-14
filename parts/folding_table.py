@@ -6,6 +6,7 @@ import sys
 from build123d import *
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import exchange
 from cadview import load_params, params_out, publish_kinematic
 from kinematics import Mechanism, mirrored_joint
 
@@ -224,6 +225,6 @@ if __name__ == "__main__":
         hits = check_pose(vals)
         print(f"{name:6s} size {bb.size.X:.0f} x {bb.size.Y:.0f} x {bb.size.Z:.0f} mm | wood {wood:.0f} L "
               f"~{wood * 1e6 * density:.0f} kg | collisions: {hits if hits else 'none'}")
-        export_step(comp, f"exports/folding_table_{name}.step")
+        exchange.export_step_assembly(pp, f"exports/folding_table_{name}.step", name=f"folding_table_{name}")
         export_stl(comp, f"exports/folding_table_{name}.stl")
     publish_kinematic(parts, joints, presets, "parts/folding_table.py", params_json, constraints)
