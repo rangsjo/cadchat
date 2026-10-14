@@ -462,7 +462,9 @@ function scheduleCheck() { $("coll").textContent = "Checking collisions…"; $("
 async function runCheck() {
   const seq = ++checkSeq;
   try {
-    const r = await (await fetch("/api/check", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify({ m: curModel, values }) })).json();
+    const res = await fetch("/api/check", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify({ m: curModel, values }) });
+    if (res.status === 403) { location.reload(); return; }          // the server was restarted and issued a new token
+    const r = await res.json();
     if (seq !== checkSeq) return;
     if (!r.ok) { $("coll").textContent = "Collision check failed: " + r.error; $("coll").className = "bad"; return; }
     collisions = r.collisions;
