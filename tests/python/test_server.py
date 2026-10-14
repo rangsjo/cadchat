@@ -519,3 +519,45 @@ def test_a_provider_can_be_tested_and_the_choice_saved(server, monkeypatch):
     assert server.call("POST", "/api/providers/test", {"id": "claude"}, token=None)[0] == 403
     s, r = server.call("POST", "/api/settings", {"provider": "copilot", "assistant_mode": "message", "setup_done": True})
     assert r["ok"] and server.call("GET", "/api/providers")[1]["current"] == {"provider": "copilot", "assistant_mode": "message", "setup_done": True}
+
+
+# ---- Creo link: state and commands go through files shared with tools/creolink.py -------------------------------------------
+def write_creo_state(root, **kw):
+    d = root / ".cad" / "creo"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "state.json").write_text(json.dumps({"connected": True, "model": "bracket.prt", "updated": time.time(), **kw}), encoding="utf-8")
+
+
+def test_creo_status_defaults_to_not_running(server):
+    assert server.call("GET", "/api/creo")[1] == {"connected": False, "running": False}
+
+
+def test_creo_status_passes_the_link_state_through(server):
+    write_creo_state(server.root, params=[{"name": "d1", "value": 1.0}])
+    r = server.call("GET", "/api/creo")[1]
+    assert r["running"] is True and r["connected"] is True and r["model"] == "bracket.prt" and r["params"][0]["name"] == "d1"
+
+
+def test_creo_status_goes_stale_when_the_link_stops_updating(server):
+    write_creo_state(server.root, updated=time.time() - 60)
+    r = server.call("GET", "/api/creo")[1]
+    assert r["running"] is False and r["connected"] is False
+
+
+def test_creo_commands_are_queued_for_the_link(server):
+    r = server.call("POST", "/api/creo/command", {"cmd": "set", "name": "LENGTH", "value": 75.5})[1]
+    assert r["ok"] and r["id"]
+    server.call("POST", "/api/creo/command", {"cmd": "sync"})
+    lines = [json.loads(l) for l in (server.root / ".cad" / "creo" / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(l["cmd"], l.get("name"), l.get("value")) for l in lines] == [("set", "LENGTH", 75.5), ("sync", None, None)]
+
+
+@pytest.mark.parametrize("body", [
+    {"cmd": "format_disk"}, {"cmd": "set"}, {"cmd": "set", "name": "x" * 200, "value": 1},
+    {"cmd": "set", "name": "A", "value": [1]}, {"cmd": "set", "name": "A\nB", "value": 1}, {"cmd": "auto_sync"}])
+def test_creo_commands_are_validated(server, body):
+    assert server.call("POST", "/api/creo/command", body)[0] == 400
+
+
+def test_creo_commands_need_the_token(server):
+    assert server.call("POST", "/api/creo/command", {"cmd": "sync"}, token=None)[0] == 403

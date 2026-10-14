@@ -1382,6 +1382,55 @@ $("modelRebuild").onclick = async () => {
   const r = await (await fetch("/api/build", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify({ script: curModel }) })).json();
   $("modelStat").textContent = r.ok ? "Rebuilt." : "Build failed: " + r.error;
 };
+// ---------------------------------------------------------------- Creo link (experimental)
+let creoState = null, creoSig = "";
+async function creoPoll() {
+  try { creoState = await (await fetch("/api/creo")).json(); } catch (e) { return; }
+  const c = creoState, sig = JSON.stringify([c.running, c.connected, c.model, c.params, c.last_result, c.last_error, c.auto_sync]);
+  if (sig === creoSig) return;                       // nothing changed: keep the inputs the user may be typing in
+  creoSig = sig;
+  const stat = $("creoStat");
+  if (!c.running) {
+    stat.innerHTML = `<span class="dot" style="background:#9aa0a6"></span>Link not running. Start it on the Windows machine with Creo: <code>creo\\start.cmd</code> (see creo/README.md).`;
+    $("creoBox").style.display = "none";
+    return;
+  }
+  stat.innerHTML = c.connected ? `<span class="dot" style="background:#6bd66b"></span>Connected to Creo` : `<span class="dot" style="background:#e06666"></span>Link running, Creo not connected`;
+  if (c.last_error) stat.innerHTML += `<div style="color:#ffb0a8;margin-top:4px">${c.last_error.replace(/</g, "&lt;")}</div>`;
+  $("creoBox").style.display = c.connected ? "block" : "none";
+  if (!c.connected) return;
+  $("creoModel").textContent = c.model ?? "(no model open)";
+  $("creoShow").style.display = c.model_id ? "" : "none";
+  $("creoAuto").checked = !!c.auto_sync;
+  const host = $("creoParams");
+  host.innerHTML = "";
+  (c.params || []).filter((p) => p.kind !== "note").forEach((p) => {
+    const d = document.createElement("div");
+    d.className = "creo-row";
+    d.innerHTML = `<span>${p.name}<small>${p.kind}${p.type && p.type !== "double" ? " · " + p.type : ""}</small></span><input ${p.type === "string" ? 'type="text"' : 'type="number" step="any"'} value="${String(p.value ?? "").replace(/"/g, "&quot;")}"><span class="btn" title="Set in Creo, regenerate, sync">Set</span>`;
+    const inp = d.querySelector("input"), go = () => creoCmd({ cmd: "set", name: p.name, value: p.type === "string" ? inp.value : +inp.value });
+    d.querySelector(".btn").onclick = go;
+    inp.onkeydown = (e) => { if (e.key === "Enter") go(); };
+    host.appendChild(d);
+  });
+  const r = c.last_result;
+  $("creoRes").textContent = r ? `${r.ok ? "✓" : "✗"} ${r.cmd}: ${r.message}` : "";
+  $("creoRes").style.color = r && !r.ok ? "#ffb0a8" : "";
+}
+async function creoCmd(body) {
+  $("creoRes").textContent = "working…";
+  creoSig = "";                                       // force a redraw when the result arrives
+  const r = await (await fetch("/api/creo/command", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify(body) })).json();
+  if (!r.ok) $("creoRes").textContent = "✗ " + r.error;
+}
+$("creoSync").onclick = () => creoCmd({ cmd: "sync" });
+$("creoRegen").onclick = () => creoCmd({ cmd: "regenerate" });
+$("creoAuto").onchange = (e) => creoCmd({ cmd: "auto_sync", value: e.target.checked });
+$("creoShow").onclick = () => { const id = creoState?.model_id; if (id) switchModel(id); };
+setInterval(creoPoll, 2000);
+creoPoll();
+if (location.hash === "#creo") document.querySelector('#tabs [data-p="creo"]').click();
+
 setInterval(poll, 1500);
 poll();
 rebuildGrid();

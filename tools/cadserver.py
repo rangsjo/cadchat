@@ -13,7 +13,6 @@ import os
 import re
 import runpy
 import secrets
-import select
 import subprocess
 import sys
 import threading
@@ -32,6 +31,7 @@ import settings
 import share
 import usage
 from cadwatch import read_jsonl, unanswered
+from lineproc import LineProcess, ProcessError
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
@@ -56,46 +56,35 @@ class Worker:
     """Talks to tools/cadworker.py; started on first use, restarted if it dies, times out or tools/*.py changed."""
 
     def __init__(self, root):
-        self.root, self.proc, self.pid, self.started = Path(root), None, None, 0.0
+        self.root, self.lp, self.started = Path(root), None, 0.0
+
+    @property
+    def pid(self):
+        return self.lp.pid if self.lp else None
 
     def start(self):
         self.stop()
-        log = open(self.root / ".cad" / "worker.log", "ab")
         env = {**os.environ, "CADCHAT_ROOT": str(self.root), "CADCHAT_TOOLS": str(HERE)}
-        self.proc = subprocess.Popen([sys.executable, str(HERE / "cadworker.py")], cwd=self.root, env=env,
-                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log)
-        self.pid, self.started = self.proc.pid, time.time()
+        (self.root / ".cad").mkdir(exist_ok=True)
+        self.lp = LineProcess([sys.executable, str(HERE / "cadworker.py")], env=env, cwd=self.root, log=self.root / ".cad" / "worker.log")
+        self.lp.start()
+        self.started = time.time()
 
     def stop(self):
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
-        self.proc, self.pid = None, None
+        if self.lp:
+            self.lp.stop()
+        self.lp = None
 
     def _stale(self):
         return any(f.stat().st_mtime > self.started for f in HERE.glob("*.py"))
 
-    def _readline(self, timeout):
-        buf, fd, end = b"", self.proc.stdout.fileno(), time.time() + timeout
-        while not buf.endswith(b"\n"):
-            left = end - time.time()
-            if left <= 0 or not select.select([fd], [], [], left)[0]:
-                raise TimeoutError
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                raise EOFError
-            buf += chunk
-        return buf
-
     def request(self, req, timeout=300):
-        if self.proc is None or self.proc.poll() is not None or self._stale():
+        if self.lp is None or self.lp.pid is None or self._stale():
             self.start()
         try:
-            self.proc.stdin.write((json.dumps(req) + "\n").encode())
-            self.proc.stdin.flush()
-            return json.loads(self._readline(timeout))
-        except (TimeoutError, EOFError, BrokenPipeError):
-            self.stop()
-            return {"ok": False, "error": "the build worker stopped or timed out; it will be restarted", "out": ""}
+            return self.lp.request(req, timeout)
+        except ProcessError as e:
+            return {"ok": False, "error": f"the build worker stopped ({e}); it will be restarted", "out": ""}
 
 
 class App:
@@ -350,6 +339,40 @@ class App:
             later = [x.get("role") for x in msgs[i + 1:]]
             m["state"] = "answered" if "assistant" in later else "queued" if m.get("id") not in seen else "working" if "status" in later else "seen"
         return msgs
+    # ---- Creo link (state and commands are files shared with tools/creolink.py) --------------------------------
+    def creo_state(self):
+        f = self.cad / "creo" / "state.json"
+        if not f.exists():
+            return {"connected": False, "running": False}
+        try:
+            st = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            return {"connected": False, "running": False}
+        st["running"] = time.time() - float(st.get("updated", 0)) < 15      # the link rewrites the state every couple of seconds
+        if not st["running"]:
+            st["connected"] = False
+        return st
+
+    def creo_command(self, d):
+        cmd = d.get("cmd")
+        if cmd not in ("sync", "set", "regenerate", "auto_sync"):
+            raise Problem(400, "unknown command")
+        out = {"cmd": cmd, "id": secrets.token_hex(4)}
+        if cmd == "set":
+            name, value = d.get("name"), d.get("value")
+            if not isinstance(name, str) or not 0 < len(name) <= 80 or not name.isprintable():
+                raise Problem(400, "bad parameter name")
+            if isinstance(value, bool) or not isinstance(value, (int, float, str)) or (isinstance(value, str) and len(value) > 200):
+                raise Problem(400, "value must be a number or a short text")
+            out.update(name=name, value=value)
+        if cmd == "auto_sync":
+            if not isinstance(d.get("value"), bool):
+                raise Problem(400, "auto_sync needs true or false")
+            out["value"] = d["value"]
+        (self.cad / "creo").mkdir(exist_ok=True)
+        with open(self.cad / "creo" / "commands.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(out) + "\n")
+        return {"ok": True, "id": out["id"]}
 
     # ---- chat -----------------------------------------------------------------------------------------------
     def message(self, d):
@@ -455,6 +478,8 @@ def make_handler(app):
                 return self._json(joints.catalog(t))
             if p == "/api/assistant":
                 return self._json(app.assistant_state())
+            if p == "/api/creo":
+                return self._json(app.creo_state())
             if p == "/api/chat":
                 return self._json(app.chat(q.get("m", [""])[0] or None))
             if p == "/api/history":
@@ -484,6 +509,8 @@ def make_handler(app):
             def run():
                 if p == "/api/message":
                     return self._json(app.message(body))
+                if p == "/api/creo/command":
+                    return self._json(app.creo_command(body))
                 if p == "/api/build":
                     app.build(body.get("script"))
                     return self._json({"ok": True})

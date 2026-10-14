@@ -36,7 +36,7 @@ def main():
             err = "" if ok else f"script exited with {e.code}"
         except BaseException:
             ok, err = False, traceback.format_exc()[-600:]
-        chan.write(json.dumps({"ok": ok, "error": err, "out": out.getvalue()[-2000:], "pid": os.getpid(),
+        chan.write(json.dumps({"id": req.get("id"), "ok": ok, "error": err, "out": out.getvalue()[-2000:], "pid": os.getpid(),
                                "ms": round((time.perf_counter() - t) * 1000)}) + "\n")
         chan.flush()
 
