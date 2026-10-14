@@ -104,3 +104,35 @@ def test_rigid_overlap_is_still_reported_from_the_cache():
     m = three_part_mechanism()
     for angle in (0, 30):
         assert any(sorted(h[:2]) == ["body", "rib"] for h in m.check({"hinge": angle}))
+
+
+def slide_mechanism():
+    parts = [dict(name="rail", shape=box_at(0, 0, 0), joint=None),
+             dict(name="car", shape=box_at(0, 0, 10), joint="slide"),
+             dict(name="lid", shape=box_at(0, 0, 20), joint="hinge")]
+    joints = [dict(name="slide", label="Slide", group="g", type="prismatic", parent=None, origin=[0, 0, 0], axis=[1, 0, 0], min=0, max=100),
+              dict(name="hinge", label="Hinge", group="g", parent="slide", origin=[-5, 0, 15], axis=[0, -1, 0], min=0, max=90)]
+    return Mechanism(parts, joints, {"out": {"slide": 50}})
+
+
+def test_prismatic_joint_translates_along_its_axis_in_mm():
+    bb = bbox(slide_mechanism(), {"slide": 50}, "car")
+    assert (round(bb.min.X), round(bb.max.X)) == (45, 55)
+
+
+def test_revolute_child_of_a_prismatic_joint_is_carried_along():
+    bb = bbox(slide_mechanism(), {"slide": 50, "hinge": 90}, "lid")
+    assert (round(bb.min.X), round(bb.max.X)) == (35, 45)
+
+
+def test_mirrored_prismatic_joint_moves_the_opposite_way():
+    j = dict(name="slide_R", label="Slide (R)", group="g", type="prismatic", parent=None, origin=[0, 0, 0], axis=[-1, 0, 0], min=0, max=10)
+    m = mirrored_joint(j, "L")
+    assert m["type"] == "prismatic" and m["axis"] == [1, 0, 0] and m["name"] == "slide_L"
+
+
+def test_posing_twice_does_not_move_the_reference_shapes():
+    m = slide_mechanism()
+    first = bbox(m, {"slide": 50}, "car").min.X
+    assert bbox(m, {"slide": 50}, "car").min.X == first
+    assert round(bbox(m, {}, "car").min.X) == -5

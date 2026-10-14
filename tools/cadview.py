@@ -6,7 +6,7 @@ so several models can live side by side and the viewer has a model switcher.
 parts:   [{"name", "shape", "joint", "role"?, "material"?}]
            base (reference) geometry, mm, z up; joint = name of the joint that moves it, or None;
            role = free-text group used for colouring (default: derived from the name); material = free text for the cut list
-joints:  [{"name", "label", "group", "parent", "origin", "axis", "min", "max"}]  revolute, axes in the base frame, degrees
+joints:  [{"name", "label", "group", "parent", "origin", "axis", "min", "max"}]  revolute (degrees) or "type": "prismatic" (mm), axes in the base frame
 presets: {"open": {joint_name: degrees, ...}, ...}   (use {"default": {}} for a static part)
 script:  project-relative path of the script; if it defines check_pose(values) -> [[partA, partB, mm3], ...]
          the viewer uses it for the live collision check (optional)

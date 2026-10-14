@@ -76,6 +76,7 @@ resize();
 function jointMatrix(name) {            // rotation of one joint about its (base-frame) axis
   const j = jointsByName[name];
   const o = new THREE.Vector3(...j.origin), ax = new THREE.Vector3(...j.axis).normalize();
+  if (j.type === "prismatic") return new THREE.Matrix4().makeTranslation(...ax.multiplyScalar(values[name] ?? 0).toArray());
   const a = ((values[name] ?? 0) * Math.PI) / 180;
   return new THREE.Matrix4().makeTranslation(o.x, o.y, o.z)
     .multiply(new THREE.Matrix4().makeRotationAxis(ax, a))
@@ -239,7 +240,7 @@ function updateKin() {
     const mat = l.holder.matrix;
     l.pos.copy(l.origin).applyMatrix4(mat);
     l.el.style.opacity = showAxes ? 1 : 0;
-    l.el.textContent = `${l.joint.label}: ${Math.round(values[l.joint.name] ?? 0)}°`;
+    l.el.textContent = `${l.joint.label}: ${Math.round(values[l.joint.name] ?? 0)}${unitOf(l.joint.name)}`;
     l.hidden = !showAxes || (activeTab !== "cons" && !activeCon) || (activeCon && activeCon.joint && activeCon.joint !== l.joint.name);
   });
 }
@@ -464,7 +465,8 @@ function buildPoseUI() {
   });
   syncSliders();
 }
-function setJoint(name, v) { values[name] = v; const s = $("s-" + name); if (s) s.value = v; const l = $("v-" + name); if (l) l.textContent = Math.round(v) + "°"; }
+const unitOf = (name) => (jointsByName[name]?.type === "prismatic" ? " mm" : "°");
+function setJoint(name, v) { values[name] = v; const s = $("s-" + name); if (s) s.value = v; const l = $("v-" + name); if (l) l.textContent = Math.round(v) + unitOf(name); }
 function syncSliders() { model.joints.forEach((j) => setJoint(j.name, values[j.name] ?? 0)); }
 let checkTimer = null, checkSeq = 0;
 function scheduleCheck() { $("coll").textContent = "Checking collisions…"; $("coll").className = ""; clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 250); }

@@ -1,25 +1,26 @@
-"""Revolute-joint kinematics and collision checking for build123d parts (generic, no project specifics).
+"""Revolute and prismatic joint kinematics and collision checking for build123d parts (generic, no project specifics).
 
-A Mechanism holds parts in a reference pose plus joints (origin/axis in that pose, degrees). `posed(values)` moves the
+A Mechanism holds parts in a reference pose plus joints (origin/axis in that pose; degrees, or mm for a joint with "type": "prismatic"). `posed(values)` moves the
 parts; `check(values)` reports overlapping pairs. Joint chains: leaf joint first, then each parent, i.e.
 M = R_parent * ... * R_leaf (axes stay in the reference frame).
 """
 import re
 from itertools import combinations
 
-from build123d import Axis, Vector
+from build123d import Axis, Location, Vector
 
 
 def mirrored_joint(j, suffix):
     """Mirror a joint across the YZ plane (x -> -x). Names/parents end in _<side>; axial vectors flip y and z."""
     base = lambda n: n.rsplit("_", 1)[0]
     o, a = j["origin"], j["axis"]
+    axis = [-a[0], a[1], a[2]] if j.get("type") == "prismatic" else [a[0], -a[1], -a[2]]      # a slide is a polar vector, a hinge an axial one
     return {**j,
             "name": f"{base(j['name'])}_{suffix}",
             "label": re.sub(r"\(\w+\)$", f"({suffix})", j["label"]),
             "parent": f"{base(j['parent'])}_{suffix}" if j.get("parent") else None,
             "origin": [-o[0], o[1], o[2]],
-            "axis": [a[0], -a[1], -a[2]]}
+            "axis": axis}
 
 
 class Mechanism:
@@ -40,7 +41,9 @@ class Mechanism:
             while j:
                 d = self.jmap[j]
                 ang = float(values.get(j, 0))
-                if ang:
+                if ang and d.get("type") == "prismatic":
+                    shape = shape.moved(Location(Vector(*d["axis"]).normalized() * ang))
+                elif ang:
                     shape = shape.rotate(Axis(Vector(*d["origin"]), Vector(*d["axis"])), ang)
                 j = d["parent"]
             out.append((p["name"], shape))
