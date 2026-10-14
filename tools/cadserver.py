@@ -22,6 +22,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from cadwatch import read_jsonl, unanswered
+
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -204,6 +206,27 @@ class App:
             f.write_text(old, encoding="utf-8") if old is not None else f.unlink()
             raise
 
+    # ---- assistant presence and delivery state -----------------------------------------------------------------
+    def assistant_state(self):
+        try:
+            hb = json.loads((self.cad / "assistant.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            hb = {}
+        beat = hb.get("beat")
+        listening = bool(beat) and hb.get("listening", True) is not False and time.time() - float(beat) < 8
+        pending = len(unanswered(read_jsonl(self.cad / "chat.jsonl"), collapse=False))
+        return {"listening": listening, "last_seen": beat, "since": hb.get("since"), "pending": pending}
+
+    def chat(self):
+        msgs = read_jsonl(self.cad / "chat.jsonl")
+        seen = {m.get("id") for m in read_jsonl(self.cad / "seen.jsonl")}
+        for i, m in enumerate(msgs):
+            if m.get("role") != "user":
+                continue
+            later = [x.get("role") for x in msgs[i + 1:]]
+            m["state"] = "answered" if "assistant" in later else "queued" if m.get("id") not in seen else "working" if "status" in later else "seen"
+        return msgs
+
     # ---- chat -----------------------------------------------------------------------------------------------
     def message(self, d):
         mid = time.strftime("%H%M%S") + "-" + secrets.token_hex(2)
@@ -274,10 +297,10 @@ def make_handler(app):
                 if not f.exists():
                     raise Problem(404, "no such model")
                 return self._send(200, f.read_text(encoding="utf-8"))
+            if p == "/api/assistant":
+                return self._json(app.assistant_state())
             if p == "/api/chat":
-                f = app.cad / "chat.jsonl"
-                lines = f.read_text(encoding="utf-8").splitlines() if f.exists() else []
-                return self._send(200, "[" + ",".join(lines) + "]")
+                return self._json(app.chat())
             raise Problem(404, "not found")
 
         def do_POST(self):

@@ -9,7 +9,7 @@ The viewer (`tools/cadserver.py`, http://127.0.0.1:8765) shows the models in `.c
 
 **Start a session**
 1. `./cadchat start` (background, does nothing if it already runs; `.venv` must exist: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`). `./cadchat status` shows where it runs.
-2. Arm the Monitor (30 min max, re-arm on expiry): `cd <project> && touch .cad/inbox.jsonl && tail -n 0 -F .cad/inbox.jsonl`, description "Messages sent from the CAD chat popup".
+2. Arm the Monitor (30 min max): command `cd <project> && CADCHAT_ROOT=<project> .venv/bin/python tools/cadwatch.py` (Windows: `.venv\Scripts\python tools\cadwatch.py`), description "Messages sent from the CAD chat popup". `cadwatch` replays messages nobody answered yet (marked `"backlog": true`, identical repeats collapsed with `"repeats": n`), then forwards new ones, and writes a heartbeat so the viewer shows "Assistant listening" (green) or "not listening (last seen ...)" with the number of waiting messages. **Re-arm it when the expiry notice arrives**, otherwise the viewer shows the assistant as away and messages wait. Replies clear the waiting state: an `assistant` reply answers everything before it, a `--status` line only shows "working on it".
 3. Tell the user the URL. They can also use the Browser pane: `preview_start` with the URL.
 4. After changing server code (`tools/*.py`) run `./cadchat restart`. Changes to `tools/static/*` need no restart, just a page reload. A restart keeps everything: models, chat log, the token (so open pages keep working and reconnect by themselves) and the inbox watch (it tails a file). Never `pkill -f <name>`: it can kill your own shell.
 

@@ -253,3 +253,58 @@ def test_a_damaged_token_file_is_replaced(project):
     (project / ".cad" / "token").write_text("x", encoding="utf-8")
     _, t = cadserver.make_server(project, port=0)
     assert len(t) >= 16 and (project / ".cad" / "token").read_text(encoding="utf-8").strip() == t
+
+
+# ---- is the assistant listening? ------------------------------------------------------------------------------------------------
+def write_cad(root, name, *objs):
+    (root / ".cad").mkdir(exist_ok=True)
+    with open(root / ".cad" / name, "a", encoding="utf-8") as f:
+        for o in objs:
+            f.write(json.dumps(o) + "\n")
+
+
+def test_assistant_unknown_until_a_watcher_has_run(server):
+    r = server.call("GET", "/api/assistant")[1]
+    assert r["listening"] is False and r["last_seen"] is None and r["pending"] == 0
+
+
+def test_assistant_listening_follows_the_heartbeat(server):
+    (server.root / ".cad").mkdir(exist_ok=True)
+    hb = {"beat": time.time(), "since": time.time() - 60, "pid": 1, "listening": True}
+    (server.root / ".cad" / "assistant.json").write_text(json.dumps(hb), encoding="utf-8")
+    r = server.call("GET", "/api/assistant")[1]
+    assert r["listening"] is True and r["since"] == pytest.approx(hb["since"])
+    hb["beat"] = time.time() - 30
+    (server.root / ".cad" / "assistant.json").write_text(json.dumps(hb), encoding="utf-8")
+    r = server.call("GET", "/api/assistant")[1]
+    assert r["listening"] is False and r["last_seen"] == pytest.approx(hb["beat"])
+
+
+def test_a_stopped_watcher_is_not_listening_even_with_a_fresh_beat(server):
+    (server.root / ".cad").mkdir(exist_ok=True)
+    (server.root / ".cad" / "assistant.json").write_text(json.dumps({"beat": time.time(), "since": 1, "listening": False}), encoding="utf-8")
+    assert server.call("GET", "/api/assistant")[1]["listening"] is False
+
+
+def test_pending_counts_messages_nobody_answered(server):
+    write_cad(server.root, "chat.jsonl", {"id": "a", "role": "user", "text": "1"}, {"id": "r", "role": "assistant", "text": "ok"},
+              {"id": "b", "role": "user", "text": "2"}, {"id": "c", "role": "user", "text": "3"})
+    assert server.call("GET", "/api/assistant")[1]["pending"] == 2
+
+
+def test_chat_messages_carry_a_delivery_state(server):
+    write_cad(server.root, "chat.jsonl", {"id": "a", "role": "user", "text": "1"}, {"id": "b", "role": "user", "text": "2"},
+              {"id": "c", "role": "user", "text": "3"}, {"id": "s", "role": "status", "text": "working"}, {"id": "d", "role": "user", "text": "4"},
+              {"id": "r", "role": "assistant", "text": "done"}, {"id": "e", "role": "user", "text": "5"})
+    write_cad(server.root, "seen.jsonl", {"id": "b", "t": 1}, {"id": "c", "t": 1}, {"id": "d", "t": 1})
+    states = {m["id"]: m.get("state") for m in server.call("GET", "/api/chat")[1] if m["role"] == "user"}
+    # a: queued then answered by r; b,c: seen then a status line; d: seen then answered; e: queued
+    assert states == {"a": "answered", "b": "answered", "c": "answered", "d": "answered", "e": "queued"}
+
+
+def test_chat_states_queued_seen_working(server):
+    write_cad(server.root, "chat.jsonl", {"id": "a", "role": "user", "text": "1"}, {"id": "b", "role": "user", "text": "2"},
+              {"id": "s", "role": "status", "text": "working"}, {"id": "c", "role": "user", "text": "3"})
+    write_cad(server.root, "seen.jsonl", {"id": "b", "t": 1}, {"id": "c", "t": 1})
+    states = {m["id"]: m.get("state") for m in server.call("GET", "/api/chat")[1] if m["role"] == "user"}
+    assert states == {"a": "queued", "b": "working", "c": "seen"}

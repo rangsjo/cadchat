@@ -21,8 +21,9 @@ the viewer sends what you clicked, together with a screenshot, to an AI assistan
   *Woodworking*: material totals. *3D printing*: bed size check and print plates exported as STL.
 - **Import and export**: STEP and STL in (button, drag and drop, `./cadchat import`, or `./cadchat watch FOLDER` for a Creo export folder); STEP assemblies with part names, STL and 3MF out. See [docs/CREO.md](docs/CREO.md).
 - **Fast**: a warm build worker (rebuild in ~0.6 s instead of 2.7 s), cached polling, binary meshes. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
-- **Chat bridge**: click a part, type "make this 60 mm", get the change and an answer. Works with any assistant that can
-  watch `.cad/inbox.jsonl`; the repository ships skills for Claude Code in `.claude/skills/`.
+- **Chat bridge**: click a part, type "make this 60 mm", get the change and an answer. The viewer shows whether the assistant
+  is listening and where each message stands (sent, seen, working, answered); nothing is lost while it is away. Works with any assistant that can
+  run `tools/cadwatch.py` (it forwards messages and keeps a heartbeat); the repository ships skills for Claude Code in `.claude/skills/`.
 
 ## Quick start
 

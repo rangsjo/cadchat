@@ -7,6 +7,7 @@ import { toBinaryStl } from "./lib/stl.js";
 import { decodeMesh } from "./lib/mesh.js";
 import { defaultPlanes as defaultPlanesFor, clipPlane, storageKey } from "./lib/planes.js";
 import { chooseModel, publishedSince } from "./lib/models.js";
+import { presence, stateLabel } from "./lib/assistant.js";
 
 const $ = (id) => document.getElementById(id);
 // If the server was restarted with a new token (an old version without a persisted token), reload once to pick it up.
@@ -1152,6 +1153,21 @@ $("form").onsubmit = async (e) => {
   poll();
 };
 let shown = 0;
+let lastAssistant = null;
+async function assistantPoll() {
+  try { lastAssistant = await (await fetch("/api/assistant")).json(); } catch (e) { return; }
+  const p = presence(lastAssistant, Date.now() / 1000);
+  for (const id of ["adot", "pdot"]) $(id).className = "dot " + (lastAssistant.last_seen == null && !lastAssistant.listening ? "none" : p.level);
+  $("atext").textContent = p.text;
+  $("ptext").textContent = lastAssistant.listening ? "Assistant listening" : lastAssistant.last_seen == null ? "Assistant not connected" : "Assistant away";
+  $("apill").style.color = lastAssistant.listening ? "var(--fg)" : "";
+  const h = $("ahint");
+  h.style.display = p.detail ? "block" : "none";
+  h.textContent = p.detail;
+}
+$("apill").onclick = () => openChat();
+setInterval(assistantPoll, 2000);
+assistantPoll();
 let connOk = true;
 function setConn(ok) { if (ok !== connOk) { connOk = ok; $("conn").style.display = ok ? "none" : "block"; } }
 async function poll() {
@@ -1165,7 +1181,12 @@ async function poll() {
         d.className = "m " + m.role;
         d.textContent = m.text;
         const on = m.parts?.length > 1 ? m.parts.length + " parts" : m.part;
-        if (m.role === "user" && on) { const s = document.createElement("small"); s.textContent = "on " + on; d.appendChild(s); }
+        if (m.role === "user") {
+          const s = document.createElement("small");
+          s.className = "st";
+          s.textContent = [on ? "on " + on : "", stateLabel(m.state)].filter(Boolean).join(" · ");
+          if (s.textContent) d.appendChild(s);
+        }
         log.appendChild(d);
       }
       log.scrollTop = log.scrollHeight;
