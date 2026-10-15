@@ -1,6 +1,6 @@
 """Revolute and prismatic joint kinematics and collision checking for build123d parts (generic, no project specifics).
 
-A Mechanism holds parts in a reference pose plus joints (origin/axis in that pose; degrees, or mm for a joint with "type": "prismatic"). `posed(values)` moves the
+A Mechanism holds parts in a reference pose plus joints (origin/axis in that pose; a joint with "mimic": {"of", "table": [[driver, value], ...]} is driven by another joint; degrees, or mm for a joint with "type": "prismatic"). `posed(values)` moves the
 parts; `check(values)` reports overlapping pairs. Joint chains: leaf joint first, then each parent, i.e.
 M = R_parent * ... * R_leaf (axes stay in the reference frame).
 """
@@ -20,7 +20,17 @@ def mirrored_joint(j, suffix):
             "label": re.sub(r"\(\w+\)$", f"({suffix})", j["label"]),
             "parent": f"{base(j['parent'])}_{suffix}" if j.get("parent") else None,
             "origin": [-o[0], o[1], o[2]],
-            "axis": axis}
+            "axis": axis,
+            **({"mimic": {**j["mimic"], "of": f"{base(j['mimic']['of'])}_{suffix}"}} if j.get("mimic") else {})}
+
+
+def _interp(table, x):
+    if x <= table[0][0]:
+        return table[0][1]
+    for (x0, y0), (x1, y1) in zip(table, table[1:]):
+        if x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return table[-1][1]
 
 
 class Mechanism:
@@ -31,10 +41,20 @@ class Mechanism:
         self.exempt = exempt or (lambda a, b: False)        # pairs that legitimately touch/overlap (hardware, tenons)
         self.cache, self.stats, self._rigid = cache, {"boolean_calls": 0}, {}
 
-    def posed(self, values):
+    def resolve(self, values):
+        """Joint values with the coupled (mimic) joints filled in from their drivers by piecewise-linear table lookup."""
         unknown = set(values) - set(self.jmap)
         if unknown:
             raise KeyError(f"unknown joint(s): {sorted(unknown)}")
+        out = dict(values)
+        for n, j in self.jmap.items():
+            m = j.get("mimic")
+            if m:
+                out[n] = _interp(m["table"], float(values.get(m["of"], 0)))
+        return out
+
+    def posed(self, values):
+        values = self.resolve(values)
         out = []
         for p in self.parts:
             shape, j = p["shape"], p.get("joint")
@@ -62,6 +82,7 @@ class Mechanism:
     def check(self, values, min_volume=1.0):
         """[[partA, partB, overlap_mm3], ...] for pairs that overlap by more than min_volume.
         Pairs that do not move relative to each other are computed once and reused in every pose."""
+        values = self.resolve(values)
         pp = self.posed(values)
         chains = [self._chain(p, values) for p in self.parts]
         bbs = [s.bounding_box() for _, s in pp]

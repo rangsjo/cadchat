@@ -87,7 +87,17 @@ function chainMatrix(name) {            // leaf joint first, then parents: M = R
   for (let j = name; j; j = jointsByName[j].parent) M.premultiply(jointMatrix(j));
   return M;
 }
+function driveMimics() {            // coupled joints follow their driver (piecewise-linear table)
+  model.joints.forEach((j) => {
+    if (!j.mimic) return;
+    const t = j.mimic.table, x = values[j.mimic.of] ?? 0;
+    let y = x <= t[0][0] ? t[0][1] : t[t.length - 1][1];
+    for (let i = 1; i < t.length; i++) if (x <= t[i][0]) { y = t[i - 1][1] + ((t[i][1] - t[i - 1][1]) * (x - t[i - 1][0])) / (t[i][0] - t[i - 1][0]); break; }
+    values[j.name] = y;
+  });
+}
 function applyPose() {
+  driveMimics();
   meshes.forEach((m) => {
     m.matrix.copy(m.userData.joint ? chainMatrix(m.userData.joint) : new THREE.Matrix4());
     m.matrixWorldNeedsUpdate = true;
@@ -447,6 +457,7 @@ function buildPoseUI() {
   host.innerHTML = "";
   let grp = null;
   model.joints.forEach((j, i) => {
+    if (j.mimic) return;                                                    // driven by another joint: no slider of its own
     if (j.group !== grp) { grp = j.group; const h = document.createElement("h4"); h.textContent = grp; host.appendChild(h); }
     const d = document.createElement("div");
     d.className = "sl";

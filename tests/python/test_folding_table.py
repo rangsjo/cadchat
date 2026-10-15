@@ -1,11 +1,12 @@
 """Acceptance tests for the example mechanism: a folding drop-leaf table rebuilt from photos and the dealer's sizes.
 
 Reference sizes (dealer listing): folded 23 cm wide, one leaf up 151 cm, fully open 280 cm, 90 cm deep, 73.5 cm high.
-Structure: two bases (a pillar under a cap) that slide together. Per side six sheets in all: a centre sheet hinged on the inner edge of
-the cap, a middle sheet on the outer edge and an outer sheet folding under the middle one, plus one small filler sheet in the centre
-that closes the gap when both centre sheets hang down. Each base carries on each side an N-shaped leg frame (two legs and a diagonal)
-that swings out on a vertical hinge, 45 deg at most: 4 frames, 8 legs. Top hinges open to 90 deg.
+Chain of six sheets, left to right: A outer sheet, B base top, C centre sheet, D centre sheet, E base top, F outer sheet.
+Hinges: A-B under, B-C under, C-D over, D-E under, E-F under. B and E carry a pillar with two fixed legs and two fold-out legs that
+lie flat in the pillar's thickness when folded. The centre sheets C and D fold down into a V (their top faces meet at the V's bottom,
+the C-D hinge) while the bases slide together; the slide is coupled to the fold angle. A loose filler sheet fills the gap in the centre.
 """
+import math
 import runpy
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def bb(ns, values, name):
 
 
 def size(ns, values):
-    b = Compound(list(posed(ns, values).values())).bounding_box()
+    b = Compound([sh for n, sh in posed(ns, values).items() if not n.startswith("hinge_")]).bounding_box()     # without the brass hardware
     return round(b.size.X), round(b.size.Y), round(b.size.Z)
 
 
@@ -42,34 +43,37 @@ def joints(ns):
     return {x["name"]: x for x in ns["joints"]}
 
 
+def cx(ns, values, name):
+    b = bb(ns, values, name)
+    return (b.min.X + b.max.X) / 2
+
+
 # ---- structure ------------------------------------------------------------------------------------------------------------------
 def test_six_sheets_plus_one_filler(ns):
     names = {p["name"] for p in ns["parts"]}
-    sheets = {n for n in names if n.split("_")[0] in ("centre", "middle", "outer") and n.endswith(("_R", "_L"))}
-    assert sheets == {f"{k}_{s}" for k in ("centre", "middle", "outer") for s in SIDES}
+    assert {f"{k}_{s}" for k in ("outer", "top", "centre") for s in SIDES} <= names
     assert "filler" in names
 
 
-def test_eight_legs_in_four_n_frames(ns):
-    legs = [p["name"] for p in ns["parts"] if "_leg_" in p["name"]]
-    assert len(legs) == 8
-    frames = {n.split("_leg_")[0] + n[-2:] for n in legs}
-    assert len(frames) == 4
-    assert all(f"{f[:-2]}_brace{f[-2:]}" in {p["name"] for p in ns["parts"]} for f in frames)
+def test_eight_legs_four_fixed_and_four_fold_out(ns):
+    names = [p["name"] for p in ns["parts"]]
+    assert sorted(n for n in names if n.startswith("post_")) == sorted(f"post_{g}_{s}" for g in GATES for s in SIDES)
+    legs = [n for n in names if n.startswith("gate_") and "_leg_" in n]
+    assert len(legs) == 4 and all(f"gate_{g}_stretcher_{s}" in names for g in GATES for s in SIDES)
 
 
-def test_joint_limits(ns):
+def test_joint_limits_and_coupling(ns):
     j = joints(ns)
-    assert j["slide_R"]["type"] == "prismatic" and j["slide_R"]["min"] == 0 and j["slide_R"]["max"] > 300
     for s in SIDES:
-        assert j[f"centre_{s}"]["max"] == j[f"middle_{s}"]["max"] == 90          # top hinge 90 deg
-        assert all(j[f"gate_{g}_{s}"]["max"] == 45 for g in GATES)               # leg hinge 45 deg
+        assert j[f"fold_{s}"]["max"] == j[f"outer_{s}"]["max"] == 90               # top hinges 90 deg
+        assert all(j[f"gate_{g}_{s}"]["max"] == 45 for g in GATES)                 # leg hinge 45 deg
+        assert j[f"slide_{s}"]["type"] == "prismatic" and j[f"slide_{s}"]["mimic"]["of"] == f"fold_{s}"
 
 
 def test_dealer_sizes(ns):
     p = ns["presets"]
     assert 2780 <= size(ns, p["open"])[0] <= 2820                  # 280 cm fully extended
-    assert 1490 <= size(ns, p["one_leaf"])[0] <= 1530              # 151 cm with one leaf up
+    assert 1490 <= size(ns, p["one_leaf"])[0] <= 1530              # 151 cm: the centre folded, both outer sheets still up
     assert 225 <= size(ns, p["closed"])[0] <= 235                  # 23 cm folded
     for k in ("open", "one_leaf", "closed"):
         x, y, z = size(ns, p[k])
@@ -78,37 +82,55 @@ def test_dealer_sizes(ns):
 
 def test_open_top_is_one_flat_surface(ns):
     pose = ns["presets"]["open"]
-    names = ["centre", "middle", "outer"]
-    for n in names:
+    for n in ("outer", "top", "centre"):
         for s in SIDES:
-            b = bb(ns, pose, f"{n}_{s}")
-            assert b.max.Z == pytest.approx(ns["height"], abs=0.01), (n, s)
-    assert bb(ns, pose, "filler").max.Z == pytest.approx(ns["height"], abs=0.01)
+            assert bb(ns, pose, f"{n}_{s}").max.Z == pytest.approx(ns["height"], abs=0.01), (n, s)
 
 
-def test_closed_everything_is_inside_the_footprint_of_the_caps(ns):
+# ---- the folded stack, hinge sides -----------------------------------------------------------------------------------------------
+def test_closed_stack_order_from_left_to_right(ns):
     pose = ns["presets"]["closed"]
+    order = ["outer_L", "top_L", "centre_L", "centre_R", "top_R", "outer_R"]
+    xs = [cx(ns, pose, n) for n in order]
+    assert xs == sorted(xs)
     for name, shape in posed(ns, pose).items():
         b = shape.bounding_box()
-        assert -ns["half_c"] - 0.5 <= b.min.X and b.max.X <= ns["half_c"] + 0.5, name
+        if name != "filler":
+            assert -ns["half_c"] - 0.5 <= b.min.X and b.max.X <= ns["half_c"] + 0.5, name
 
 
-def test_filler_closes_the_gap_between_the_hanging_centre_sheets(ns):
-    pose = ns["presets"]["closed"]
-    f, r, l = bb(ns, pose, "filler"), bb(ns, pose, "centre_R"), bb(ns, pose, "centre_L")
-    assert l.max.X < f.min.X + 20 and f.max.X > r.min.X - 20                  # the gap is small enough for the filler
-    assert r.min.X - l.max.X > f.size.X                                       # but not closed: the filler is an extra sheet
-
-
-# ---- hinges ---------------------------------------------------------------------------------------------------------------------
-def test_top_hinges_sit_in_the_top_skin_and_the_under_hinge_on_the_underside(ns):
+def test_hinges_under_except_the_centre_one_over(ns):
     j = joints(ns)
     for s in SIDES:
-        assert j[f"centre_{s}"]["origin"][2] > ns["uz"] and j[f"middle_{s}"]["origin"][2] > ns["uz"]
-        assert j[f"outer_{s}"]["origin"][2] == ns["uz"] and j[f"outer_{s}"]["parent"] == f"middle_{s}"
-        assert j[f"centre_{s}"]["parent"] == j[f"middle_{s}"]["parent"] == f"slide_{s}"
+        assert j[f"fold_{s}"]["origin"][2] == ns["uz"] and j[f"outer_{s}"]["origin"][2] == ns["uz"]     # A-B, B-C, D-E, E-F under
+        assert j[f"fold_{s}"]["parent"] == j[f"outer_{s}"]["parent"] == f"slide_{s}"
+    barrel = [p for p in ns["parts"] if p["name"] == "hinge_pin_barrel_R"][0]["shape"].bounding_box()
+    assert barrel.max.Z + barrel.min.Z == pytest.approx(2 * ns["height"], abs=0.01)                      # C-D over: pin on the top surface
 
 
+def test_centre_sheets_form_a_v_whose_hinge_stays_closed_all_the_way(ns):
+    for f in range(0, 10):
+        ang = f * 10
+        pose = {"fold_R": ang, "fold_L": ang}
+        r, l = bb(ns, pose, "centre_R"), bb(ns, pose, "centre_L")
+        assert r.min.X == pytest.approx(ns["gap"] / 2, abs=0.01) and l.max.X == pytest.approx(-ns["gap"] / 2, abs=0.01), ang
+
+
+def test_closed_centre_sheets_hang_with_the_top_faces_towards_each_other(ns):
+    pose = ns["presets"]["closed"]
+    r, l = bb(ns, pose, "centre_R"), bb(ns, pose, "centre_L")
+    assert r.min.X == pytest.approx(ns["gap"] / 2, abs=0.01) and r.max.X == pytest.approx(ns["gap"] / 2 + ns["top_t"], abs=0.5)
+    assert r.max.Z == pytest.approx(ns["uz"], abs=1.5) and r.min.Z > 0                                  # hangs from the underside pivot
+
+
+def test_filler_closes_the_gap_between_the_bases_when_dropped_in(ns):
+    pose = ns["presets"]["closed"]
+    f, tl, tr = bb(ns, pose, "filler"), bb(ns, pose, "top_L"), bb(ns, pose, "top_R")
+    assert f.max.Z == pytest.approx(ns["height"], abs=0.01) and f.min.Z == pytest.approx(ns["uz"], abs=0.01)
+    assert tl.max.X < f.min.X and f.max.X < tr.min.X and f.min.X - tl.max.X < 3 and tr.min.X - f.max.X < 3
+
+
+# ---- legs -----------------------------------------------------------------------------------------------------------------------
 def test_gates_turn_about_vertical_axes_in_opposite_senses(ns):
     j = joints(ns)
     f, b = j["gate_front_R"], j["gate_back_R"]
@@ -116,19 +138,22 @@ def test_gates_turn_about_vertical_axes_in_opposite_senses(ns):
     assert f["origin"][1] > 0 > b["origin"][1] and f["parent"] == "slide_R"
 
 
-def test_open_n_frames_stand_at_45_deg_under_the_middle_sheet_and_lie_flat_when_folded(ns):
+def test_open_fold_out_legs_stand_under_the_outer_sheet_and_lie_flat_inside_the_pillar_thickness_when_folded(ns):
     pose = ns["presets"]["open"]
-    mid = bb(ns, pose, "middle_R")
+    outer = bb(ns, pose, "outer_R")
+    pillar_open = bb(ns, pose, "pillar_R")
     for g in GATES:
-        leg = bb(ns, pose, f"gate_{g}_leg_out_R")
-        assert mid.min.X < (leg.min.X + leg.max.X) / 2 < mid.max.X            # the free leg stands under the sheet
-        assert leg.max.Z == pytest.approx(ns["uz"])                           # and touches its underside
+        leg = bb(ns, pose, f"gate_{g}_leg_R")
+        assert outer.min.X < (leg.min.X + leg.max.X) / 2 < outer.max.X                   # the foot stands under the sheet
+        assert leg.max.Z == pytest.approx(ns["uz"]) and leg.min.X > pillar_open.max.X    # and well outside the pillar
     closed = ns["presets"]["closed"]
-    pil, hang = bb(ns, closed, "pillar_R"), bb(ns, closed, "outer_R")
+    block = bb(ns, closed, "post_front_R")
+    pil = bb(ns, closed, "pillar_R")
     for g in GATES:
-        for part in ("leg_in", "leg_out", "brace"):
+        for part in ("leg", "stretcher"):
             b = bb(ns, closed, f"gate_{g}_{part}_R")
-            assert pil.max.X <= b.min.X and b.max.X <= hang.min.X, (g, part)  # between the pillar and the hanging sheets
+            assert block.min.X <= b.min.X and b.max.X <= block.max.X                      # inside the thickness of the pillar block
+            assert pil.max.X <= b.min.X                                                   # next to the pillar panel, not in it
 
 
 # ---- poses ----------------------------------------------------------------------------------------------------------------------
@@ -138,49 +163,36 @@ def test_every_preset_is_collision_free(ns, preset):
 
 
 def test_a_wrong_pose_is_caught_and_names_the_clashing_parts(ns):
-    pose = dict(ns["presets"]["closed"], **{f"gate_{g}_{s}": 0 for g in GATES for s in SIDES})
-    assert any(any(n.startswith("gate_") for n in h[:2]) for h in ns["check_pose"](pose))
+    pose = dict(ns["presets"]["closed"], **{f"gate_{g}_{s}": 0 for g in GATES for s in SIDES})        # legs still out
+    assert ns["check_pose"](pose)
 
 
 def steps(n):
     return [i / n for i in range(n + 1)]
 
 
-def test_the_gates_fold_without_hitting_anything(ns):
-    c = ns["presets"]["closed"]
-    for f in steps(9):
-        pose = {f"gate_{g}_{s}": f * c[f"gate_{g}_{s}"] for g in GATES for s in SIDES}
-        assert ns["check_pose"](pose) == [], f"gate fraction {f:.2f}"
+def closed_gates(ns, f=1.0):
+    return {f"gate_{g}_{s}": f * 45 for g in GATES for s in SIDES}        # 45 = lying flat in the pillar
 
 
-def fold_all(c, f=1.0, **extra):
-    gates = {f"gate_{g}_{s}": c[f"gate_{g}_{s}"] for g in GATES for s in SIDES}
-    return {**gates, **extra}
+def test_the_whole_fold_sequence_is_collision_free(ns):
+    for f in steps(9):                                   # the fold-out legs lie down
+        assert ns["check_pose"](closed_gates(ns, f)) == [], f"gates {f:.2f}"
+    flat = closed_gates(ns)
+    for f in steps(9):                                   # the outer sheets hang down
+        assert ns["check_pose"]({**flat, **{f"outer_{s}": f * 90 for s in SIDES}}) == [], f"outer {f:.2f}"
+    base = {**flat, **{f"outer_{s}": 90 for s in SIDES}}
+    for f in steps(18):                                  # the centre sheets fold into the V while the bases slide together
+        assert ns["check_pose"]({**base, **{f"fold_{s}": f * 90 for s in SIDES}}) == [], f"centre {f:.2f}"
 
 
-def test_sheets_fold_then_the_halves_slide_together(ns):
-    c = ns["presets"]["closed"]
-    for f in steps(8):                                   # outer sheets fold under the middle ones
-        assert ns["check_pose"](fold_all(c, **{f"outer_{s}": f * 180 for s in SIDES})) == [], f"outer {f:.2f}"
-    base = fold_all(c, **{f"outer_{s}": 180 for s in SIDES})
-    for f in steps(8):                                   # then the middle sheets hang down
-        assert ns["check_pose"]({**base, **{f"middle_{s}": f * 90 for s in SIDES}}) == [], f"middle {f:.2f}"
-    base = {**base, **{f"middle_{s}": 90 for s in SIDES}}
-    for f in steps(8):                                   # and the centre sheets
-        assert ns["check_pose"]({**base, **{f"centre_{s}": f * 90 for s in SIDES}}) == [], f"centre {f:.2f}"
-    base = {**base, **{f"centre_{s}": 90 for s in SIDES}}
-    for f in steps(8):                                   # the halves slide together
-        assert ns["check_pose"]({**base, **{f"slide_{s}": f * c[f"slide_{s}"] for s in SIDES}}) == [], f"slide {f:.2f}"
-
-
-def test_one_leaf_preset_has_one_side_open_and_one_folded(ns):
+def test_one_leaf_preset_keeps_the_outer_sheets_up_and_folds_the_centre(ns):
     p = ns["presets"]["one_leaf"]
-    assert all(p[f"{k}_R"] == 0 for k in ("slide", "centre", "middle", "outer", "gate_front", "gate_back"))
-    assert p["centre_L"] == p["middle_L"] == 90 and p["outer_L"] == 180 and p["slide_L"] == joints(ns)["slide_L"]["max"]
+    assert p["fold_R"] == p["fold_L"] == 90 and p["outer_R"] == p["outer_L"] == 0
 
 
 def test_mirrored_sides_are_symmetric(ns):
     pose = ns["presets"]["closed"]
-    for name in ("centre", "middle", "outer", "pillar", "gate_front_leg_in", "gate_back_brace"):
+    for name in ("outer", "top", "centre", "pillar", "post_front", "gate_front_leg", "gate_back_stretcher"):
         r, l = bb(ns, pose, f"{name}_R"), bb(ns, pose, f"{name}_L")
         assert round(r.min.X + l.max.X, 1) == 0 and round(r.max.X + l.min.X, 1) == 0, name

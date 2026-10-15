@@ -136,3 +136,26 @@ def test_posing_twice_does_not_move_the_reference_shapes():
     first = bbox(m, {"slide": 50}, "car").min.X
     assert bbox(m, {"slide": 50}, "car").min.X == first
     assert round(bbox(m, {}, "car").min.X) == -5
+
+
+def mimic_mechanism():
+    parts = [dict(name="rail", shape=box_at(0, 0, 0), joint=None),
+             dict(name="car", shape=box_at(0, 0, 10), joint="slide"),
+             dict(name="lid", shape=box_at(0, 0, 20), joint="hinge")]
+    joints = [dict(name="slide", label="Slide", group="g", type="prismatic", parent=None, origin=[0, 0, 0], axis=[1, 0, 0], min=0, max=100,
+                   mimic={"of": "hinge", "table": [[0, 0], [90, 100]]}),
+              dict(name="hinge", label="Hinge", group="g", parent="slide", origin=[-5, 0, 15], axis=[0, -1, 0], min=0, max=90)]
+    return Mechanism(parts, joints, {"a": {"hinge": 90}})
+
+
+def test_mimic_joint_follows_its_driver_by_table_interpolation():
+    m = mimic_mechanism()
+    assert round(bbox(m, {"hinge": 90}, "car").min.X) == 95
+    assert round(bbox(m, {"hinge": 45}, "car").min.X) == 45                  # linear between the table rows
+    assert round(bbox(m, {"slide": 70}, "car").min.X) == -5                  # the driven value is ignored: only the driver counts
+
+
+def test_mirrored_mimic_joint_follows_the_mirrored_driver():
+    j = dict(name="slide_R", label="Slide (R)", group="g", type="prismatic", parent=None, origin=[0, 0, 0], axis=[-1, 0, 0], min=0, max=10,
+             mimic={"of": "fold_R", "table": [[0, 0], [90, 10]]})
+    assert mirrored_joint(j, "L")["mimic"] == {"of": "fold_L", "table": [[0, 0], [90, 10]]}
