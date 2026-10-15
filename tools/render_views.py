@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-COL = {"top": (214, 160, 98), "pillar": (150, 98, 62), "leg": (126, 78, 52), "hardware": (230, 200, 60)}
+COL = {"top": (214, 160, 98), "pillar": (150, 98, 62), "leg": (126, 78, 52), "beam": (170, 112, 72), "hardware": (230, 200, 60)}
 VIEWS = {"Iso": (-35, 25), "Front": (0, 0), "Side": (90, 0), "Top": (0, 90)}     # (azimuth, elevation) in degrees
 
 
