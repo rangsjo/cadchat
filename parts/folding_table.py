@@ -27,10 +27,10 @@ PARAMS = {  # name: (default, unit, group, description)
     "sheet_w": (664, "mm", "Top", "Width of a centre sheet (C, D), pivot to the C-D hinge"),
     "outer_w": (664, "mm", "Top", "Width of an outer sheet (A, F)"),
     "gap": (1, "mm", "Top", "Seam between top parts"),
-    "post": (46, "mm", "Base", "Square section of the fixed legs = thickness of the pillar block"),
-    "panel_t": (18, "mm", "Base", "Thickness of the pillar panel between the fixed legs"),
-    "leg": (18, "mm", "Legs", "Square section of the fold-out legs"),
-    "gate_len": (380, "mm", "Legs", "Length of a fold-out leg frame, hinge to the leg"),
+    "post": (52, "mm", "Base", "Square section of the fixed legs = thickness of the pillar block (panel and two folded legs side by side)"),
+    "panel_t": (16, "mm", "Base", "Thickness of the pillar panel between the fixed legs"),
+    "leg": (16, "mm", "Legs", "Square section of the fold-out legs"),
+    "gate_len": (700, "mm", "Legs", "Length of a fold-out leg frame, hinge to the foot (almost the whole pillar block)"),
     "gate_inset": (20, "mm", "Legs", "Distance of the fixed legs from the long edges"),
     "stretcher_h": (40, "mm", "Legs", "Height of the stretcher"),
     "stretcher_t": (12, "mm", "Legs", "Thickness of the stretcher"),
@@ -70,13 +70,23 @@ def barrel(xa, za):
 
 
 def frame_parts():
-    """Front fold-out leg frame lying flat (folded) in the thickness of the pillar block, then turned 45 deg out into the open pose."""
+    """Both fold-out legs lying flat in the pillar block (folded), turned 45 deg out into the open pose. The outer leg lies on the outer side
+    of the panel, hinged at the front fixed leg, and swings out towards the outer sheet; the inner leg lies on the inner side, hinged at the
+    back fixed leg, and swings towards the centre. Each is a full-height leg at the far end plus a stretcher back to the hinge."""
+    out = []
+    # outer leg: hinge corner (bx1, +y_h), flat along -y
     ya = y_h - gate_len
-    leg_s = box(bx1 - leg, bx1, ya, ya + leg, 0, uz)
     xs = bx1 - leg + (leg - stretcher_t) / 2
-    stretcher = box(xs, xs + stretcher_t, ya + leg, y_h, low_z - stretcher_h / 2, low_z + stretcher_h / 2)
     turn = Axis((bx1, y_h, 0), (0, 0, 1))
-    return [("leg", leg_s.rotate(turn, 45)), ("stretcher", stretcher.rotate(turn, 45))]
+    out += [("gate_out_leg", box(bx1 - leg, bx1, ya, ya + leg, 0, uz).rotate(turn, 45)),
+            ("gate_out_stretcher", box(xs, xs + stretcher_t, ya + leg, y_h, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45))]
+    # inner leg: hinge corner (bx0, -y_h), flat along +y
+    yb = -y_h + gate_len
+    xs = bx0 + (leg - stretcher_t) / 2
+    turn = Axis((bx0, -y_h, 0), (0, 0, 1))
+    out += [("gate_in_leg", box(bx0, bx0 + leg, yb - leg, yb, 0, uz).rotate(turn, 45)),
+            ("gate_in_stretcher", box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45))]
+    return out
 
 
 def shift(shape):
@@ -88,8 +98,8 @@ x_de_o, x_ef_o = x_de + X, x_ef + X
 J, R = {}, []
 J["fold"] = dict(label="Centre sheet fold (top hinge 90°)", group="Sheets", parent="slide", origin=(x_de_o, 0, uz), axis=(0, -1, 0), min=0, max=90)
 J["outer"] = dict(label="Outer sheet fold (underside hinge)", group="Sheets", parent="slide", origin=(x_ef_o, 0, uz), axis=(0, 1, 0), min=0, max=90)
-J["gate_front"] = dict(label="Front fold-out leg hinge", group="Legs", parent="slide", origin=(bx1 + X, y_h, 0), axis=(0, 0, -1), min=0, max=45)
-J["gate_back"] = dict(label="Back fold-out leg hinge", group="Legs", parent="slide", origin=(bx1 + X, -y_h, 0), axis=(0, 0, 1), min=0, max=45)
+J["gate_out"] = dict(label="Outer fold-out leg hinge (towards the outer sheet)", group="Legs", parent="slide", origin=(bx1 + X, y_h, 0), axis=(0, 0, -1), min=0, max=45)
+J["gate_in"] = dict(label="Inner fold-out leg hinge (towards the centre)", group="Legs", parent="slide", origin=(bx0 + X, -y_h, 0), axis=(0, 0, -1), min=0, max=45)
 # the slide is coupled to the fold angle: the pins of the two centre sheets must stay together at x = +-gap/2 (four-bar closure)
 _table = [[a, round(sheet_w * (1 - math.cos(math.radians(a))) - t * math.sin(math.radians(a)), 4)] for a in [i * 2.5 for i in range(37)]]
 J["slide"] = dict(label="Base slide (coupled to the fold)", group="Sheets", type="prismatic", parent=None, origin=(0, 0, 0), axis=(-1, 0, 0),
@@ -98,15 +108,14 @@ J["slide"] = dict(label="Base slide (coupled to the fold)", group="Sheets", type
 R.append(("top", shift(box(x_de + g, x_ef - g, -depth / 2, depth / 2, uz, height)), "slide"))
 R.append(("centre", box(g / 2, x_de_o - g, -depth / 2, depth / 2, uz, height), "fold"))
 R.append(("outer", box(x_ef_o + g, x_ef_o + outer_w, -depth / 2, depth / 2, uz, height), "outer"))
-R.append(("pillar", shift(box(bx0, bx0 + panel_t, -y_h, y_h, 0, uz)), "slide"))
+R.append(("pillar", shift(box(bx0 + leg + 1, bx0 + leg + 1 + panel_t, -y_h, y_h, 0, uz)), "slide"))
 R.append(("hinge_pin_barrel", barrel(g / 2, pin_z), "fold"))
 R.append(("hinge_de_barrel", barrel(x_de_o, uz), "slide"))
 R.append(("hinge_ef_barrel", barrel(x_ef_o, uz), "slide"))
 for sgn, name in ((1, "front"), (-1, "back")):
     R.append((f"post_{name}", shift(box(bx0, bx1, *sorted((sgn * y_h, sgn * (y_h + post))), 0, uz)), "slide"))
 for n, sh in frame_parts():
-    R.append((f"gate_front_{n}", shift(sh), "gate_front"))
-    R.append((f"gate_back_{n}", shift(mirror(sh, Plane.XZ)), "gate_back"))
+    R.append((n, shift(sh), n.rsplit("_", 1)[0]))
 
 
 def meta_of(name):
@@ -133,10 +142,10 @@ joints = right_joints + [mirrored_joint(j, "L") for j in right_joints]
 joints.append(dict(name="filler", label="Filler sheet (lift into the gap)", group="Sheets", type="prismatic", parent=None, origin=[0, 0, 0],
                    axis=[0, 0, 1], min=0, max=uz))
 
-FOLDED = {"fold": 90, "outer": 90, "gate_front": 45, "gate_back": 45}
+FOLDED = {"fold": 90, "outer": 90, "gate_out": 45, "gate_in": 45}
 presets = {
     "open": {},
-    "one_leaf": {**{f"fold_{s}": 90 for s in "RL"}, "filler": uz},                  # centre folded, outer sheets and legs still out: 151 cm
+    "one_leaf": {**{f"fold_{s}": 90 for s in "RL"}, **{f"gate_in_{s}": 45 for s in "RL"}, "filler": uz},   # centre folded, outer sheets and outer legs still out: 151 cm
     "closed": {**{f"{k}_{s}": v for s in "RL" for k, v in FOLDED.items()}, "filler": uz},
 }
 
@@ -161,12 +170,12 @@ for sfx in "RL":
              parts=[n("pillar"), n("post_front"), n("post_back"), n("top")], params=["post", "panel_t"],
              expr=f"panel {fmt(panel_t)} mm and two fixed legs {fmt(post)} x {fmt(post)} mm under the base top"),
     ]
-    for g_ in ("front", "back"):
+    for g_, what in (("out", "towards the outer sheet, hinged at the front fixed leg"), ("in", "towards the centre, hinged at the back fixed leg")):
         constraints += [
-            dict(id=n(f"gate_{g_}"), kind="revolute", label=f"{g_.capitalize()} fold-out leg hinge ({sfx}): vertical axis at the fixed leg",
-                 a=n(f"post_{g_}"), b=n(f"gate_{g_}_leg"), joint=n(f"gate_{g_}"), parts=[n(f"post_{g_}"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")],
-                 params=["leg", "gate_len", "post"],
-                 expr=f"hinge corner at y = {fmt((1 if g_ == 'front' else -1) * y_h)}; open it stands {fmt(gate_len)} mm out at 45 deg, folded it lies flat in the pillar block"),
+            dict(id=n(f"gate_{g_}"), kind="revolute", label=f"{g_.capitalize()}er fold-out leg hinge ({sfx}): vertical axis at a fixed leg",
+                 a=n("post_front" if g_ == "out" else "post_back"), b=n(f"gate_{g_}_leg"), joint=n(f"gate_{g_}"),
+                 parts=[n("post_front" if g_ == "out" else "post_back"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")], params=["leg", "gate_len", "post"],
+                 expr=f"swings {what}; open it stands {fmt(gate_len * 0.707)} mm out at 45 deg and carries the sheet, folded it lies flat beside the panel"),
         ]
 total_open = 2 * (x_ef_o + outer_w)
 constraints += [

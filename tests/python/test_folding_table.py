@@ -14,7 +14,7 @@ import pytest
 from build123d import Compound
 
 SCRIPT = Path(__file__).resolve().parents[2] / "parts" / "folding_table.py"
-SIDES, GATES = "RL", ("front", "back")
+SIDES, GATES = "RL", ("out", "in")
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +57,7 @@ def test_six_sheets_plus_one_filler(ns):
 
 def test_eight_legs_four_fixed_and_four_fold_out(ns):
     names = [p["name"] for p in ns["parts"]]
-    assert sorted(n for n in names if n.startswith("post_")) == sorted(f"post_{g}_{s}" for g in GATES for s in SIDES)
+    assert sorted(n for n in names if n.startswith("post_")) == sorted(f"post_{g}_{s}" for g in ("front", "back") for s in SIDES)
     legs = [n for n in names if n.startswith("gate_") and "_leg_" in n]
     assert len(legs) == 4 and all(f"gate_{g}_stretcher_{s}" in names for g in GATES for s in SIDES)
 
@@ -131,29 +131,34 @@ def test_filler_closes_the_gap_between_the_bases_when_dropped_in(ns):
 
 
 # ---- legs -----------------------------------------------------------------------------------------------------------------------
-def test_gates_turn_about_vertical_axes_in_opposite_senses(ns):
+def test_fold_out_legs_turn_about_vertical_axes_from_opposite_ends(ns):
     j = joints(ns)
-    f, b = j["gate_front_R"], j["gate_back_R"]
-    assert f["axis"][:2] == [0, 0] and b["axis"][:2] == [0, 0] and f["axis"][2] == -b["axis"][2] != 0
-    assert f["origin"][1] > 0 > b["origin"][1] and f["parent"] == "slide_R"
+    o, i = j["gate_out_R"], j["gate_in_R"]
+    assert o["axis"][:2] == [0, 0] and i["axis"][:2] == [0, 0]
+    assert o["origin"][1] > 0 > i["origin"][1] and o["parent"] == i["parent"] == "slide_R"
 
 
-def test_open_fold_out_legs_stand_under_the_outer_sheet_and_lie_flat_inside_the_pillar_thickness_when_folded(ns):
+def test_one_leg_folds_out_towards_the_outer_sheet_and_one_towards_the_centre_each_almost_full_length(ns):
     pose = ns["presets"]["open"]
-    outer = bb(ns, pose, "outer_R")
-    pillar_open = bb(ns, pose, "pillar_R")
+    pil, outer, centre = bb(ns, pose, "pillar_R"), bb(ns, pose, "outer_R"), bb(ns, pose, "centre_R")
+    out, inn = bb(ns, pose, "gate_out_leg_R"), bb(ns, pose, "gate_in_leg_R")
+    assert outer.min.X < (out.min.X + out.max.X) / 2 < outer.max.X and out.min.X > pil.max.X            # foot under the outer sheet
+    assert centre.min.X < (inn.min.X + inn.max.X) / 2 < centre.max.X and inn.max.X < pil.min.X          # foot under the centre sheet
+    for b in (out, inn):
+        assert b.max.Z == pytest.approx(ns["uz"])                                                       # full height: carries the sheet
     for g in GATES:
-        leg = bb(ns, pose, f"gate_{g}_leg_R")
-        assert outer.min.X < (leg.min.X + leg.max.X) / 2 < outer.max.X                   # the foot stands under the sheet
-        assert leg.max.Z == pytest.approx(ns["uz"]) and leg.min.X > pillar_open.max.X    # and well outside the pillar
+        st = bb(ns, pose, f"gate_{g}_stretcher_R")
+        assert st.min.Z > 100 and st.max.Z < ns["uz"] - 100
+    assert ns["gate_len"] >= 0.75 * (ns["depth"] - 2 * ns["gate_inset"] - 2 * ns["post"])               # almost the full length of the block
+
+
+def test_folded_legs_lie_flat_in_the_thickness_of_the_pillar_block_either_side_of_the_panel(ns):
     closed = ns["presets"]["closed"]
-    block = bb(ns, closed, "post_front_R")
-    pil = bb(ns, closed, "pillar_R")
-    for g in GATES:
-        for part in ("leg", "stretcher"):
-            b = bb(ns, closed, f"gate_{g}_{part}_R")
-            assert block.min.X <= b.min.X and b.max.X <= block.max.X                      # inside the thickness of the pillar block
-            assert pil.max.X <= b.min.X                                                   # next to the pillar panel, not in it
+    block, pil = bb(ns, closed, "post_front_R"), bb(ns, closed, "pillar_R")
+    for part in ("leg", "stretcher"):
+        o, i = bb(ns, closed, f"gate_out_{part}_R"), bb(ns, closed, f"gate_in_{part}_R")
+        assert pil.max.X <= o.min.X and o.max.X <= block.max.X                                          # outer side of the panel
+        assert block.min.X - 0.01 <= i.min.X and i.max.X <= pil.min.X                                          # inner side of the panel
 
 
 # ---- poses ----------------------------------------------------------------------------------------------------------------------
@@ -193,6 +198,6 @@ def test_one_leaf_preset_keeps_the_outer_sheets_up_and_folds_the_centre(ns):
 
 def test_mirrored_sides_are_symmetric(ns):
     pose = ns["presets"]["closed"]
-    for name in ("outer", "top", "centre", "pillar", "post_front", "gate_front_leg", "gate_back_stretcher"):
+    for name in ("outer", "top", "centre", "pillar", "post_front", "gate_out_leg", "gate_in_stretcher"):
         r, l = bb(ns, pose, f"{name}_R"), bb(ns, pose, f"{name}_L")
         assert round(r.min.X + l.max.X, 1) == 0 and round(r.max.X + l.min.X, 1) == 0, name
