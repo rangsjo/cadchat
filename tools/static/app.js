@@ -248,7 +248,7 @@ function updateKin() {
 // ---------------------------------------------------------------- camera
 function boxOf(objs) {
   const b = new THREE.Box3();
-  objs.forEach((o) => b.union(new THREE.Box3().setFromObject(o)));
+  objs.forEach((o) => b.union(new THREE.Box3().setFromObject(o, true)));
   return b;
 }
 const visibleMeshes = () => (layoutMode ? layoutMeshes : meshes.filter((m) => m.visible));
