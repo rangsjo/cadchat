@@ -30,12 +30,31 @@ the viewer sends what you clicked, together with a screenshot, to an AI assistan
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-./cadchat run folding_table      # build the example mechanism
+./cadchat run folding_table      # build the bundled example (the examples project is used until you create your own)
 ./cadchat start                  # viewer in the background: http://127.0.0.1:8765
-./cadchat restart                # after changing tools/*.py; open pages reconnect by themselves
 ```
 
-Create your own:
+### Projects, and picking up again later
+
+The app and your work are separate. A **project** is a folder with its own `parts/` (model scripts), `exports/` and `.cad/`
+(built models, chat history per model, version history per model). The app only holds the tools, the viewer, `templates/`,
+`library/` (reusable models) and `examples/` (a project to look at).
+
+```bash
+./cadchat init ~/cad/chairs --name "Dining chairs"   # a new project
+cd ~/cad/chairs && /path/to/cadchat start            # a command works on the project around the current folder ...
+./cadchat --project ~/cad/chairs start               # ... or name it; without either: the last one you used
+./cadchat projects                                   # everything you have started, most recent first
+./cadchat library                                    # reusable models;  ./cadchat add shaft --as rod  copies one into the project
+```
+
+**Coming back after a break:** `./cadchat start` (safe to repeat; each project gets its own port, the viewer shows the project name on top).
+The model switcher lists every model of the project, the chat shows the conversation of the model you are looking at, and the
+**History** tab lists every earlier build of that model (script and parameters, with what you had asked for) with a Restore button.
+Chat replies only flow while an assistant session runs `tools/cadwatch.py`; the badge shows "Assistant away" when none does, and
+your messages wait (state "queued") until one starts.
+
+Create your own models:
 
 ```bash
 ./cadchat new part bracket2          # a static part
@@ -47,7 +66,7 @@ Create your own:
 ```
 
 A model script is plain Python: parameters at the top, geometry with build123d, then `publish_kinematic(...)`.
-See `templates/` and `parts/` (a shaft with a keyway, an L-bracket, a folding drop-leaf table).
+See `templates/`, `library/parts/` (a shaft with a keyway, an L-bracket) and `examples/parts/` (a folding drop-leaf table).
 
 ## Tests
 
@@ -62,15 +81,17 @@ the security model are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); measured
 ## Layout
 
 ```
-parts/        model scripts (one per model)          templates/   starting points for new models
 tools/        server, publisher, kinematics, CLI     tools/static viewer (index.html, app.js, lib/*.js pure logic)
-tests/        pytest + node:test                     docs/        architecture notes
-.claude/skills/  workflows for Claude Code           .cad/        generated models, chat log (git-ignored)
+templates/    starting points for new models         library/     reusable models (`cadchat add`)
+examples/     a project to look at                   tests/       pytest + node:test
+docs/         architecture notes                     .claude/skills/  workflows for Claude Code
+
+a project:    cadproject.json  parts/ (scripts)  exports/  .cad/ (models, chat, history; git-ignored)
 ```
 
 ## Status
 
-Early but working. Revolute joints only, one model shown at a time, three.js is loaded from a CDN (pinned version).
+Early but working. Revolute, sliding and coupled (mimic) joints, one model shown at a time, three.js is loaded from a CDN (pinned version).
 The viewer binds to 127.0.0.1 and checks the Host header and a per-run token before accepting changes.
 
 ## License

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from build123d import *
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import exchange
 from cadview import load_params, params_out, publish_kinematic
 

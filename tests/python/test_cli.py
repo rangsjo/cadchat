@@ -77,3 +77,46 @@ def test_main_import_publishes_a_model(project, tmp_path, capsys):
     assert cadchat.main(["import", str(f)], project) == 0
     assert (project / ".cad" / "models" / "plate" / "model.json").exists()
     assert cadchat.main(["import", str(tmp_path / "missing.step")], project) == 1
+
+
+# ---- projects and library --------------------------------------------------------------------------------------------
+@pytest.fixture
+def cfg(tmp_path, monkeypatch):
+    monkeypatch.setenv("CADCHAT_HOME", str(tmp_path / "cfg"))
+    monkeypatch.delenv("CADCHAT_ROOT", raising=False)
+    return tmp_path
+
+
+def test_init_and_projects_list(cfg, capsys):
+    assert cadchat.main(["init", str(cfg / "chairs"), "--name", "Chairs"]) == 0
+    assert (cfg / "chairs" / "cadproject.json").exists()
+    assert cadchat.main(["init", str(cfg / "chairs")]) == 1                    # already a project
+    capsys.readouterr()
+    assert cadchat.main(["projects"]) == 0
+    out = capsys.readouterr().out
+    assert "Chairs" in out and str(cfg / "chairs") in out
+
+
+def test_project_option_selects_the_project_for_any_command(cfg, capsys):
+    cadchat.main(["init", str(cfg / "a")])
+    assert cadchat.main(["--project", str(cfg / "a"), "new", "part", "plate"]) == 0
+    assert (cfg / "a" / "parts" / "plate.py").exists()
+    assert cadchat.main(["--project", str(cfg), "list"]) == 1                  # a folder that is not a project
+
+
+def test_library_lists_and_add_copies_a_model_that_runs_in_the_new_project(cfg, capsys):
+    cadchat.main(["init", str(cfg / "p")])
+    capsys.readouterr()
+    assert cadchat.main(["library"]) == 0
+    assert "shaft" in capsys.readouterr().out
+    assert cadchat.main(["--project", str(cfg / "p"), "add", "shaft", "--as", "rod"]) == 0
+    assert cadchat.main(["--project", str(cfg / "p"), "run", "rod"]) == 0
+    assert (cfg / "p" / ".cad" / "models" / "rod" / "model.json").exists()
+    assert cadchat.main(["--project", str(cfg / "p"), "add", "nope"]) == 1
+
+
+def test_new_scripts_find_the_tools_from_any_project(cfg):
+    cadchat.main(["init", str(cfg / "p")])
+    assert cadchat.main(["--project", str(cfg / "p"), "new", "part", "plate"]) == 0
+    assert cadchat.main(["--project", str(cfg / "p"), "run", "plate"]) == 0
+    assert (cfg / "p" / ".cad" / "models" / "plate" / "model.json").exists()

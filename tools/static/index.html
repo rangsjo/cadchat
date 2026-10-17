@@ -30,6 +30,9 @@ h4:first-child{margin-top:2px}
 body.insp #tip{display:none!important}
 .cut{display:grid;grid-template-columns:1fr 32px 1.5fr 48px;gap:6px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px}
 .cut span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cut:hover{background:#33363c}.cut.sel{background:var(--acc);color:#111}
+#projBar{padding:7px 10px 0;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist{padding:5px 6px;border-radius:5px;margin:3px 0;background:#262a30;display:flex;gap:8px;align-items:center}
+.hist small{color:var(--dim);display:block}.hist span.t{flex:1;overflow:hidden}
 #modelBar{display:flex;gap:6px;padding:8px 8px 2px}#modelBar select{flex:1;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:4px 6px;font:inherit}
 #modelStat{padding:0 10px 6px;color:var(--dim);font-size:12px;min-height:14px}
 #bedBox input,.par input{background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:3px 5px;font:inherit}
@@ -65,9 +68,10 @@ body.insp #tip{display:none!important}
 </head><body>
 <div id="view"></div>
 <div id="side">
+  <div id="projBar" title="The project this viewer serves (cadchat projects)"></div>
   <div id="modelBar"><select id="modelSel" title="Switch model"></select><span class="btn" id="modelRebuild" title="Run the model's script again">⟳</span><span class="btn" id="modelImport" title="Import a STEP or STL file (or drop it on the viewer)">⇪</span><input type="file" id="importFile" accept=".step,.stp,.stl" hidden></div>
   <div id="modelStat"></div>
-  <div id="tabs"><div data-p="pose" class="on">Pose</div><div data-p="cons">Constraints</div><div data-p="par">Parameters</div><div data-p="parts">Parts</div><div data-p="make">Make</div></div>
+  <div id="tabs"><div data-p="pose" class="on">Pose</div><div data-p="cons">Constraints</div><div data-p="par">Parameters</div><div data-p="parts">Parts</div><div data-p="make">Make</div><div data-p="hist">History</div></div>
   <div class="pane on" id="p-pose">
     <h4>Presets</h4><div id="presets"></div>
     <div id="coll">Checking collisions…</div>
@@ -93,6 +97,11 @@ body.insp #tip{display:none!important}
     <div id="legend"></div>
     <h4>Show in 3D</h4><div><span class="btn on" id="sAxes">Joint axes</span><span class="btn on" id="sLinks">Connections</span></div>
     <h4>Constraints <span id="ccount"></span></h4><div id="cons"></div>
+  </div>
+  <div class="pane" id="p-hist">
+    <h4>History of this model</h4>
+    <div style="color:var(--dim);margin:2px">Every build keeps its script and parameters, with what you had asked for. Restoring first saves the current state, so it can be undone.</div>
+    <div id="hist"></div>
   </div>
   <div class="pane" id="p-par">
     <div id="params"></div>

@@ -41,13 +41,14 @@ Parts are published in a reference pose. A part moves with the chain of its join
 | Method, path | Purpose |
 |---|---|
 | `GET /api/models` | Published models and unbuilt scripts, plus the latest published id |
-| `GET /api/version` | Per-model stamps (µs), polled by the viewer |
+| `GET /api/version` | Per-model stamps (µs), polled by the viewer, plus the project path and name |
 | `GET /api/model?m=ID` | One `model.json` |
+| `GET /api/history?m=ID`, `POST /api/restore {m, id}` | Snapshots of the model's script and parameters (one per build, newest first); restore one and rebuild |
 | `POST /api/check {m, values}` | Collision pairs for a pose, from the script's `check_pose` (none if it has none) |
 | `POST /api/params {m, values}` | Save parameter overrides and rebuild that model |
 | `POST /api/build {script}` | Run `parts/<script>.py` in the warm worker |
 | `POST /api/import?name=&ext=` | Upload a STEP/STL (raw body) and publish it as a model |
-| `POST /api/message`, `GET /api/chat` | Chat bridge |
+| `POST /api/message`, `GET /api/chat[?m=ID]` | Chat bridge; `m` limits the log to one model (the viewer shows the conversation of the model on screen) |
 
 ## Security model
 

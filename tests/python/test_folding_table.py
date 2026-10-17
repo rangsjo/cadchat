@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from build123d import Compound
 
-SCRIPT = Path(__file__).resolve().parents[2] / "parts" / "folding_table.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "examples" / "parts" / "folding_table.py"
 SIDES, GATES = "RL", ("out", "in")
 
 

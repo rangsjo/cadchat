@@ -23,4 +23,4 @@ presets, one deliberately wrong pose that must be caught). See `tests/python/tes
 
 - Units are mm, z is up. One model per script in `parts/NAME.py`, all dimensions in a `PARAMS` block, every part named.
 - Posing and collision checking come from `tools/kinematics.py`; do not copy that code into model scripts.
-- Anything the server runs (`check_pose`, rebuilds) must live in `parts/`; ids are `[A-Za-z0-9_-]`.
+- Anything the server runs (`check_pose`, rebuilds) must live in the project's `parts/`; ids are `[A-Za-z0-9_-]`.

@@ -102,7 +102,8 @@ class Watcher:
 
 
 def main():
-    root = Path(os.environ.get("CADCHAT_ROOT") or HERE.parent)
+    import projects
+    root = projects.resolve_project()
     w = Watcher(root, out=lambda s: print(s, flush=True))
     w.start()
     last_beat = time.time()

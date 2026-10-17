@@ -308,3 +308,38 @@ def test_chat_states_queued_seen_working(server):
     write_cad(server.root, "seen.jsonl", {"id": "b", "t": 1}, {"id": "c", "t": 1})
     states = {m["id"]: m.get("state") for m in server.call("GET", "/api/chat")[1] if m["role"] == "user"}
     assert states == {"a": "queued", "b": "working", "c": "seen"}
+
+
+# ---- projects, per-model chat, history --------------------------------------------------------------------------
+def test_version_names_the_project(server):
+    (server.root / "cadproject.json").write_text('{"name": "Chairs"}', encoding="utf-8")
+    s, v = server.call("GET", "/api/version")
+    assert v["project"] == str(server.root.resolve()) and v["name"] in ("Chairs", server.root.name)
+
+
+def post_msg(server, text, model):
+    assert server.call("POST", "/api/message", {"text": text, "m": model})[1]["ok"]
+
+
+def test_chat_can_be_limited_to_one_model(server):
+    post_msg(server, "about a", "a")
+    post_msg(server, "about b", "b")
+    texts = lambda path: [m["text"] for m in server.call("GET", path)[1]]
+    assert texts("/api/chat") == ["about a", "about b"]
+    assert texts("/api/chat?m=a") == ["about a"] and texts("/api/chat?m=b") == ["about b"]
+
+
+def test_history_lists_snapshots_and_restore_rebuilds_the_old_state(server, write_script):
+    write_script("m", "mech")
+    s, r = server.call("POST", "/api/build", {"script": "m"})
+    assert r["ok"]
+    first = server.call("GET", "/api/history?m=m")[1]
+    assert len(first) == 1
+    server.call("POST", "/api/params", {"m": "m", "values": {"w": 33}})
+    hist = server.call("GET", "/api/history?m=m")[1]
+    assert len(hist) == 2
+    s, r = server.call("POST", "/api/restore", {"m": "m", "id": hist[-1]["id"]})
+    assert r["ok"]
+    model = server.call("GET", "/api/model?m=m")[1]
+    assert model["params"][0]["value"] == 10                                  # the first snapshot had the default width
+    assert server.call("POST", "/api/restore", {"m": "m", "id": "nope"})[0] in (200, 404)

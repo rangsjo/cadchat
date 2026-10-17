@@ -1,2 +1,4 @@
 #!/usr/bin/env bash
-cd "$(dirname "$0")" && exec .venv/bin/python tools/cadchat.py "$@"
+# Works from any folder: the project is the one around the current directory (see: cadchat projects).
+APP="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+exec "$APP/.venv/bin/python" "$APP/tools/cadchat.py" "$@"

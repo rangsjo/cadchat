@@ -1,5 +1,9 @@
 """cadchat command line.
 
+  ./cadchat init DIR [--name N]    create a project folder (its own parts/, exports/, chat history)
+  ./cadchat projects               known projects, most recently used first
+  ./cadchat --project DIR CMD ...  run any command on a project (default: the project around the cwd, else the last used one)
+  ./cadchat library                reusable models;  ./cadchat add NAME [--as NEW]  copies one into the project
   ./cadchat new part NAME          create parts/NAME.py from templates/part.py
   ./cadchat new mechanism NAME     create parts/NAME.py from templates/mechanism.py (joints, presets, collision check)
   ./cadchat run NAME               run parts/NAME.py (builds and publishes the model)
@@ -24,6 +28,8 @@ import sys
 import time
 from pathlib import Path
 
+import projects
+
 HERE = Path(__file__).resolve().parent
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 KINDS = {"part": "part.py", "mechanism": "mechanism.py"}
@@ -33,7 +39,7 @@ DEFAULT_PORT = 8765
 
 
 def default_root():
-    return Path(os.environ.get("CADCHAT_ROOT") or HERE.parent)
+    return projects.resolve_project()
 
 
 def create(kind, name, root):
@@ -45,7 +51,8 @@ def create(kind, name, root):
     if target.exists():
         raise FileExistsError(f"{target} already exists")
     target.parent.mkdir(exist_ok=True)
-    target.write_text((HERE.parent / "templates" / KINDS[kind]).read_text(encoding="utf-8").replace("NAME", name), encoding="utf-8")
+    text = (HERE.parent / "templates" / KINDS[kind]).read_text(encoding="utf-8").replace("NAME", name)
+    target.write_text(projects.retarget_script(text, name, name), encoding="utf-8")
     return target
 
 
@@ -68,13 +75,16 @@ def port_open(port):
         return False
 
 
-def _is_cadchat(port):
-    """True if what listens on the port is a cadchat server (not some other program)."""
+def _is_cadchat(port, root=None):
+    """True if what listens on the port is a cadchat server (not some other program); with root: one serving that project."""
     try:
         c = http.client.HTTPConnection("127.0.0.1", port, timeout=1.5)
         c.request("GET", "/api/version", headers={"Host": f"127.0.0.1:{port}"})
         r = c.getresponse()
-        return r.status == 200 and "models" in json.loads(r.read())
+        if r.status != 200:
+            return False
+        v = json.loads(r.read())
+        return "models" in v and (root is None or v.get("project") in (None, str(Path(root).resolve())))
     except (OSError, ValueError):
         return False
 
@@ -93,20 +103,24 @@ def _read_info(root):
 def server_status(root, port=None):
     info = _read_info(root)
     p = port or (info or {}).get("port") or DEFAULT_PORT
-    if not _is_cadchat(p):
+    if not _is_cadchat(p, root):
         return None
     same = info and info.get("port") == p
     return {"pid": info.get("pid") if same else None, "port": p, "url": f"http://127.0.0.1:{p}/", "started_at": info.get("started") if same else None}
 
 
-def start_server(root, port=None, wait=15):
+def start_server(root, port=None, wait=15, default_port=DEFAULT_PORT):
+    """Start the project's server. Without an explicit port: the port it used last if that is free, else the first free one from default_port."""
     root = Path(root)
-    port = port or (_read_info(root) or {}).get("port") or DEFAULT_PORT
-    st = server_status(root, port)
+    explicit = port
+    port = port or (_read_info(root) or {}).get("port")
+    st = server_status(root, port) if port else None
     if st:
         return {**st, "started": False}
+    if not port or (not explicit and port_open(port)):
+        port = projects.pick_port(default_port)
     if port_open(port):
-        raise RuntimeError(f"port {port} is in use by another program (not cadchat); pick another with --port")
+        raise RuntimeError(f"port {port} is in use by another program or project; pick another with --port")
     (root / ".cad").mkdir(exist_ok=True)
     log = root / ".cad" / "server.log"
     kw = {"creationflags": getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)} \
@@ -148,9 +162,9 @@ def stop_server(root):
 
 
 def restart_server(root, port=None):
-    port = port or (_read_info(root) or {}).get("port") or DEFAULT_PORT
+    port = port or (_read_info(root) or {}).get("port")
     stop_server(root)
-    for _ in range(50):                      # the OS may need a moment to release the port
+    for _ in range(50 if port else 0):       # the OS may need a moment to release the port
         if not port_open(port):
             break
         time.sleep(0.1)
@@ -175,9 +189,17 @@ def scan_once(directory, state):
 
 
 def main(argv=None, root=None):
-    root = Path(root) if root else default_root()
     ap = argparse.ArgumentParser(prog="cadchat")
+    ap.add_argument("--project", help="project folder (default: the project around the cwd, else the last used one)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    ini = sub.add_parser("init")
+    ini.add_argument("dir")
+    ini.add_argument("--name")
+    sub.add_parser("projects")
+    sub.add_parser("library")
+    ad = sub.add_parser("add")
+    ad.add_argument("name")
+    ad.add_argument("--as", dest="as_name")
     n = sub.add_parser("new")
     n.add_argument("kind")
     n.add_argument("name")
@@ -200,7 +222,23 @@ def main(argv=None, root=None):
     x.add_argument("--out")
     a = ap.parse_args(argv)
     try:
-        if a.cmd == "new":
+        if a.cmd == "init":
+            print(f"created project {projects.init_project(a.dir, a.name)}")
+            return 0
+        if a.cmd == "projects":
+            for p in projects.known_projects():
+                print(f"{p['name']:24s} {p['path']}")
+            return 0
+        if a.cmd == "library":
+            for n in projects.library_list():
+                print(n)
+            return 0
+        root = Path(root) if root else projects.resolve_project(a.project)
+        if a.cmd in ("start", "restart", "serve", "run", "new", "add"):
+            projects.touch(root) if projects.is_project(root) else None
+        if a.cmd == "add":
+            print(f"added {projects.add_from_library(a.name, root, a.as_name)}")
+        elif a.cmd == "new":
             print(f"created {create(a.kind, a.name, root)}")
         elif a.cmd == "list":
             for name, built in list_scripts(root):
@@ -242,7 +280,7 @@ def main(argv=None, root=None):
             print(f"running: {st['url']} (pid {st['pid']})")
         elif a.cmd == "run":
             return subprocess.call([sys.executable, str(root / "parts" / f"{a.name}.py")], cwd=root,
-                                   env={**os.environ, "CADCHAT_ROOT": str(root)})
+                                   env={**os.environ, "CADCHAT_ROOT": str(root), "CADCHAT_TOOLS": str(HERE)})
         elif a.cmd == "serve":
             if server_status(root, a.port):
                 print(f"already running at http://127.0.0.1:{a.port}/ - use: cadchat restart")

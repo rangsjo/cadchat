@@ -20,8 +20,11 @@ from pathlib import Path
 
 
 def root():
-    """Project root: CADCHAT_ROOT if set (tests, other projects), else the repository this file lives in."""
-    return Path(os.environ.get("CADCHAT_ROOT") or Path(__file__).resolve().parent.parent)
+    """Project root: CADCHAT_ROOT if set (tests, other projects), else the project around the cwd / the last used one."""
+    if os.environ.get("CADCHAT_ROOT"):
+        return Path(os.environ["CADCHAT_ROOT"])
+    import projects
+    return projects.resolve_project()
 
 
 def cad_dir():
@@ -73,4 +76,9 @@ def publish_kinematic(parts, joints, presets, script, params=None, constraints=N
                                "params": params or [], "constraints": constraints or [], "default": next(iter(presets))},
                               separators=(",", ":")), encoding="utf-8")
     tmp.replace(d / "model.json")
+    try:
+        import history
+        history.snapshot(root(), name, script)
+    except (OSError, ValueError):                 # the history is a convenience: it must never fail a build
+        pass
     print(f"published '{name}': {len(items)} parts, {len(joints)} joints, {len(presets)} presets")

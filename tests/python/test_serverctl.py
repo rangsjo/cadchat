@@ -85,3 +85,19 @@ def test_cli_commands_roundtrip(project, port, capsys):
     assert "running" in capsys.readouterr().out
     assert cadchat.main(["restart", "--port", str(port)], project) == 0
     assert cadchat.main(["stop"], project) == 0
+
+
+def test_a_second_project_gets_its_own_port_and_is_not_mistaken_for_the_first(tmp_path, monkeypatch):
+    import projects
+    monkeypatch.setenv("CADCHAT_HOME", str(tmp_path / "cfg"))
+    a, b = projects.init_project(tmp_path / "a"), projects.init_project(tmp_path / "b")
+    p = free_port()
+    try:
+        ia = cadchat.start_server(a, p)
+        assert cadchat.server_status(b, p) is None                              # that port serves project a, not b
+        ib = cadchat.start_server(b, None, default_port=p)
+        assert ib["started"] and ib["port"] != p and ia["port"] == p
+        assert cadchat.server_status(b, ib["port"])["port"] == ib["port"]
+    finally:
+        cadchat.stop_server(a)
+        cadchat.stop_server(b)

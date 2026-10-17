@@ -22,12 +22,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import history
 from cadwatch import read_jsonl, unanswered
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css"}
+
+
+def _project_name(root):
+    try:
+        return json.loads((Path(root) / "cadproject.json").read_text(encoding="utf-8")).get("name") or Path(root).name
+    except (OSError, ValueError):
+        return Path(root).name
 
 
 class Problem(Exception):
@@ -45,7 +53,7 @@ class Worker:
     def start(self):
         self.stop()
         log = open(self.root / ".cad" / "worker.log", "ab")
-        env = {**os.environ, "CADCHAT_ROOT": str(self.root)}
+        env = {**os.environ, "CADCHAT_ROOT": str(self.root), "CADCHAT_TOOLS": str(HERE)}
         self.proc = subprocess.Popen([sys.executable, str(HERE / "cadworker.py")], cwd=self.root, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log)
         self.pid, self.started = self.proc.pid, time.time()
@@ -86,6 +94,7 @@ class App:
     def __init__(self, root, port):
         self.root = Path(root).resolve()
         self.cad = self.root / ".cad"
+        self.name = _project_name(self.root)
         (self.cad / "shots").mkdir(parents=True, exist_ok=True)
         self.token = self._load_token()
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -206,6 +215,15 @@ class App:
             f.write_text(old, encoding="utf-8") if old is not None else f.unlink()
             raise
 
+    def restore(self, mid, sid):
+        script = self.script_of(mid)
+        with self.lock:
+            try:
+                history.restore(self.root, mid, sid, script.relative_to(self.root).as_posix())
+            except KeyError:
+                raise Problem(404, "no such snapshot")
+            self.run_script(script)
+
     # ---- assistant presence and delivery state -----------------------------------------------------------------
     def assistant_state(self):
         try:
@@ -217,8 +235,10 @@ class App:
         pending = len(unanswered(read_jsonl(self.cad / "chat.jsonl"), collapse=False))
         return {"listening": listening, "last_seen": beat, "since": hb.get("since"), "pending": pending}
 
-    def chat(self):
+    def chat(self, model=None):
         msgs = read_jsonl(self.cad / "chat.jsonl")
+        if model:
+            msgs = [m for m in msgs if m.get("model") in (model, None)]
         seen = {m.get("id") for m in read_jsonl(self.cad / "seen.jsonl")}
         for i, m in enumerate(msgs):
             if m.get("role") != "user":
@@ -291,7 +311,8 @@ def make_handler(app):
                 return self._json(app.models())
             if p == "/api/version":
                 stamps = app.stamps()
-                return self._json({"models": stamps, "latest": max(stamps, key=stamps.get) if stamps else None})
+                return self._json({"models": stamps, "latest": max(stamps, key=stamps.get) if stamps else None,
+                                   "project": str(app.root), "name": app.name})
             if p == "/api/model":
                 f = app.mdir(q.get("m", [""])[0]) / "model.json"
                 if not f.exists():
@@ -300,7 +321,12 @@ def make_handler(app):
             if p == "/api/assistant":
                 return self._json(app.assistant_state())
             if p == "/api/chat":
-                return self._json(app.chat())
+                return self._json(app.chat(q.get("m", [""])[0] or None))
+            if p == "/api/history":
+                try:
+                    return self._json(history.list_history(app.root, q.get("m", [""])[0]))
+                except ValueError:
+                    raise Problem(400, "bad model id")
             raise Problem(404, "not found")
 
         def do_POST(self):
@@ -329,6 +355,9 @@ def make_handler(app):
                 vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
                 if p == "/api/check":
                     return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/restore":
+                    app.restore(body.get("m"), str(body.get("id", "")))
+                    return self._json({"ok": True})
                 if p == "/api/params":
                     app.set_params(body.get("m"), vals)
                     return self._json({"ok": True})
@@ -349,7 +378,7 @@ def make_server(root, port=8765):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--root", default=os.environ.get("CADCHAT_ROOT") or str(Path(__file__).resolve().parent.parent))
+    ap.add_argument("--root", default=os.environ.get("CADCHAT_ROOT") or str(__import__("projects").resolve_project()))
     a = ap.parse_args()
     os.environ["CADCHAT_ROOT"] = str(Path(a.root).resolve())
     try:

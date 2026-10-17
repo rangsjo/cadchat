@@ -1185,7 +1185,7 @@ let connOk = true;
 function setConn(ok) { if (ok !== connOk) { connOk = ok; $("conn").style.display = ok ? "none" : "block"; } }
 async function poll() {
   try {
-    const msgs = await (await fetch("/api/chat")).json();
+    const msgs = await (await fetch("/api/chat" + (curModel ? "?m=" + encodeURIComponent(curModel) : ""))).json();
     if (msgs.length !== shown) {
       const log = $("log");
       log.innerHTML = "";
@@ -1207,6 +1207,7 @@ async function poll() {
       shown = msgs.length;
     }
     const v = await (await fetch("/api/version")).json();
+    if (v.name && $("projBar").textContent !== v.name) { $("projBar").textContent = v.name; document.title = `${v.name} · CAD chat`; }
     if (curModel === null) {
       const r = await refreshList();
       let stored = null; try { stored = localStorage.getItem("cad.model"); } catch (e) { /* ignore */ }
@@ -1223,6 +1224,34 @@ async function poll() {
     else if (v.models[curModel] !== undefined && v.models[curModel] !== modelStamp) await loadModel(curModel, false);
     setConn(true);
   } catch (e) { setConn(false); /* server restarting: keep polling, the page recovers by itself */ }
+}
+// ---------------------------------------------------------------- history (versions of the model script and parameters)
+async function loadHistory() {
+  if (!curModel) return;
+  const host = $("hist");
+  let items = [];
+  try { items = await (await fetch(`/api/history?m=${encodeURIComponent(curModel)}`)).json(); } catch (e) { return; }
+  host.innerHTML = "";
+  if (!items.length) { host.innerHTML = '<div style="color:var(--dim);margin:6px 2px">No versions yet: they appear when the model is built.</div>'; return; }
+  items.forEach((it, i) => {
+    const d = document.createElement("div");
+    d.className = "hist";
+    const t = it.time.replace(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/, "$1-$2-$3 $4:$5:$6");
+    d.innerHTML = `<span class="t"><b>${t}${i === 0 ? " (current)" : ""}</b><small></small></span>`;
+    d.querySelector("small").textContent = it.note || "(no request recorded)";
+    if (i > 0) {
+      const b = document.createElement("span");
+      b.className = "btn"; b.textContent = "Restore";
+      b.onclick = async () => {
+        b.textContent = "…";
+        const r = await (await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify({ m: curModel, id: it.id }) })).json();
+        $("modelStat").textContent = r.ok ? "Restored " + t : "Restore failed: " + r.error;
+        await loadHistory();
+      };
+      d.appendChild(b);
+    }
+    host.appendChild(d);
+  });
 }
 async function refreshList() {
   const r = await (await fetch("/api/models")).json();
@@ -1243,6 +1272,7 @@ async function switchModel(id) {
     stamps = (await (await fetch("/api/version")).json()).models;
   }
   curModel = id;
+  shown = -1;                                                         // the chat shows the conversation of this model
   try { localStorage.setItem("cad.model", id); } catch (e) { /* ignore */ }
   planesLoaded = false; collisions = []; activeCon = null; mPts = [];
   Object.keys(values).forEach((k) => delete values[k]);
@@ -1256,6 +1286,7 @@ async function loadModel(id, fresh) {
   const m = await res.json();
   if (!m.parts) return;
   model = m; modelStamp = stamps?.[id] ?? 0;
+  loadHistory();
   $("modelStat").textContent = `${m.parts.length} parts, ${m.joints.length} joints`;
   const prev = { ...values };
   model.joints.forEach((j) => (values[j.name] = prev[j.name] ?? model.presets[model.default]?.[j.name] ?? 0));
