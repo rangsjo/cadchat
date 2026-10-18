@@ -64,3 +64,11 @@ The measurements came from ad-hoc scripts: `time ./cadchat run NAME` for rebuild
 `cProfile` around `Mechanism.check`, `performance.now()` around the slider handler, and a Node script that feeds generated
 meshes to `tools/static/lib/*.js`. Timing assertions inside the test suite are deliberately coarse (binary STL must beat ASCII)
 to avoid flaky tests.
+
+## Viewer frame budget (measured 2026-10-18, folding table, 57 parts)
+
+Software WebGL in the built-in browser pane (the worst case, no GPU): 157 draw calls, 10k triangles, 4 ms render per frame (18 fps there). With a GPU the same
+scene renders in well under 2 ms. Moving a joint slider costs 0.6 ms in the page (pose, info, dimensions), a collision check on the server 0.1 to 0.7 ms per 100 parts
+pairs (about 0.1 s for the table), loading the 0.3 MB model 70 ms. View ▸ Performance shows these numbers live (fps, render ms, draws, triangles, pose, load, check)
+so a slow machine can be diagnosed with numbers. The token usage reader is incremental (only the new lines of a transcript are read), so a growing session no longer
+blocks the server for a second per poll.

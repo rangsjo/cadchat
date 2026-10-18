@@ -8,9 +8,10 @@ export const DISPLAY_ITEMS = [
   { key: "dims", label: "Dimension labels" },
   { key: "info", label: "Info bar" },
   { key: "badge", label: "Assistant badge" },
+  { key: "perf", label: "Performance (fps, draw calls)", off: true },
 ];
 
-export const defaultDisplay = () => Object.fromEntries(DISPLAY_ITEMS.map((i) => [i.key, true]));
+export const defaultDisplay = () => Object.fromEntries(DISPLAY_ITEMS.map((i) => [i.key, !i.off]));          // everything on, except the performance readout
 
 export function toggled(state, key) {
   if (!(key in defaultDisplay())) throw new Error(`unknown display item: ${key}`);

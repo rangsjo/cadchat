@@ -4,8 +4,8 @@ import { DISPLAY_ITEMS, defaultDisplay, loadDisplay, saveDisplay, toggled, prese
 
 test("every overlay can be switched, and all start on", () => {
   const keys = DISPLAY_ITEMS.map((i) => i.key);
-  for (const k of ["grid", "planes", "axes", "links", "jointLabels", "dims", "info", "badge"]) assert.ok(keys.includes(k), k);
-  assert.ok(Object.values(defaultDisplay()).every((v) => v === true));
+  for (const k of ["grid", "planes", "axes", "links", "jointLabels", "dims", "info", "badge", "perf"]) assert.ok(keys.includes(k), k);
+  assert.ok(Object.entries(defaultDisplay()).every(([k, v]) => v === (k !== "perf")));            // the performance readout is opt-in
   assert.ok(DISPLAY_ITEMS.every((i) => i.label && i.key));
 });
 

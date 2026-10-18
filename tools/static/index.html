@@ -45,6 +45,7 @@ body.insp #tip{display:none!important}
 .mbody kbd{background:#33363c;border-radius:4px;padding:1px 6px;font:12px monospace}.mbody code{background:#14161a;padding:1px 5px;border-radius:4px}
 #usageMini{position:fixed;right:10px;top:0;height:30px;z-index:31;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);cursor:pointer;padding:0 6px;border-radius:5px}
 #usageMini:hover{background:#33363c;color:var(--fg)}#usageSpark rect{fill:var(--acc)}#usageSpark rect.z{fill:#4a5160}
+#perf{position:fixed;left:350px;bottom:70px;font:11px monospace;color:#9be3a8;background:#000a;padding:3px 8px;border-radius:5px;pointer-events:none;z-index:5}
 #gridNote{position:fixed;left:350px;bottom:52px;font-size:11px;color:var(--dim);pointer-events:none}
 .uchart rect.o{fill:var(--acc)}.uchart rect.n{fill:#6cb2ff}.uchart rect.c{fill:#4a5160}.uchart text{fill:var(--dim);font-size:10px}
 .ucards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0}.ucards div{background:#262a30;border-radius:6px;padding:6px 8px}.ucards b{display:block;font-size:17px}.ucards small{color:var(--dim)}
@@ -89,6 +90,7 @@ body.insp #tip{display:none!important}
 <div id="menubar"></div>
 <div id="usageMini" title="Token usage of the assistant sessions for this project (View ▸ Token usage for details)"><svg id="usageSpark" width="42" height="16" viewBox="0 0 42 16"></svg><span id="usageText">…</span></div>
 <div id="gridNote"></div>
+<div id="perf" style="display:none"></div>
 <div id="view"></div>
 <div id="side">
   <div id="projBar" title="The project this viewer serves (cadchat projects)"></div>

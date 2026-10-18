@@ -117,6 +117,7 @@ function driveMimics() {            // coupled joints follow their driver (piece
   });
 }
 function applyPose() {
+  const tp = performance.now();
   driveMimics();
   meshes.forEach((m) => {
     m.matrix.copy(m.userData.joint ? chainMatrix(m.userData.joint) : new THREE.Matrix4());
@@ -127,6 +128,7 @@ function applyPose() {
   updateInfo();
   drawDims();
   rebuildCaps();
+  perf.pose = performance.now() - tp;
 }
 
 // ---------------------------------------------------------------- build
@@ -534,14 +536,14 @@ function syncSliders() { model.joints.forEach((j) => setJoint(j.name, values[j.n
 let checkTimer = null, checkSeq = 0;
 function scheduleCheck() { $("coll").textContent = "Checking collisions…"; $("coll").className = ""; clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 250); }
 async function runCheck() {
-  const seq = ++checkSeq;
+  const seq = ++checkSeq, tc = performance.now();
   try {
     const res = await fetch("/api/check", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify({ m: curModel, values }) });
     if (res.status === 403) { location.reload(); return; }          // the server was restarted and issued a new token
     const r = await res.json();
     if (seq !== checkSeq) return;
     if (!r.ok) { $("coll").textContent = "Collision check failed: " + r.error; $("coll").className = "bad"; return; }
-    collisions = r.collisions;
+    collisions = r.collisions; perf.check = performance.now() - tc;
     const c = $("coll");
     if (!collisions.length) { c.className = ""; c.textContent = "✓ No collisions in this pose"; }
     else { c.className = "bad"; c.innerHTML = `⚠ ${collisions.length} collision${collisions.length > 1 ? "s" : ""}<br>` + collisions.slice(0, 6).map((x) => `${x[0]} × ${x[1]} (${(x[2] / 1000).toFixed(1)} cm³)`).join("<br>"); }
@@ -1342,6 +1344,7 @@ async function switchModel(id) {
   await loadModel(id, true);
 }
 async function loadModel(id, fresh) {
+  const tl = performance.now();
   const res = await fetch(`/api/model?m=${encodeURIComponent(id)}`);
   if (!res.ok) { $("modelStat").textContent = "Model not found"; return; }
   const m = await res.json();
@@ -1355,6 +1358,7 @@ async function loadModel(id, fresh) {
   build(); rebuildGrid(); buildPoseUI(); buildConsUI(); buildParamsUI();
   scheduleCheck();
   if (fresh) { if (layoutMode) fitLayout(); else look(0.6, -0.6, 0.5); }
+  perf.load = performance.now() - tl;
 }
 $("modelSel").onchange = (e) => switchModel(e.target.value);
 async function importFile(f) {
@@ -1398,11 +1402,24 @@ function place(l) {
   l.el.style.left = ((tmp.x + 1) / 2) * innerWidth + "px";
   l.el.style.top = ((1 - tmp.y) / 2) * innerHeight + "px";
 }
+const perf = { render: 0, frames: 0, t: performance.now(), fps: 0, pose: 0, load: 0, check: 0 };
+setInterval(() => {
+  const now = performance.now(), dt = (now - perf.t) / 1000;
+  perf.fps = perf.frames / dt; perf.frames = 0; perf.t = now;
+  const el = $("perf");
+  el.style.display = disp.perf ? "" : "none";
+  if (!disp.perf) return;
+  const i = renderer.info.render;
+  el.textContent = `${perf.fps.toFixed(0)} fps · render ${perf.render.toFixed(1)} ms · ${i.calls} draws · ${(i.triangles / 1000).toFixed(1)}k tris · pose ${perf.pose.toFixed(1)} ms · model load ${perf.load.toFixed(0)} ms · collision check ${perf.check.toFixed(0)} ms`;
+}, 500);
 (function loop() {
   requestAnimationFrame(loop);
   if (inspectMode) { ictl.update(); renderInspect(); return; }
   controls.update();
+  const t0 = performance.now();
   renderer.render(scene, camera);
+  perf.render = perf.render * 0.9 + (performance.now() - t0) * 0.1;
+  perf.frames++;
   labels.forEach((l) => { const h = l.hidden; if (!overlayVisible(disp, measureMode)) l.hidden = true; place(l); l.hidden = h; });
   kinLabels.forEach(place);
   layoutLabels.forEach(place);

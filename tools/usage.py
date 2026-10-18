@@ -8,41 +8,46 @@ from pathlib import Path
 
 KINDS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 NAMES = ("input", "output", "cache_read", "cache_creation")
-STATS = {"parsed": 0}
-_cache = {}                       # path -> ((mtime_ns, size), parsed rows or None when the file does not mention the project, project)
+STATS = {"parsed": 0, "lines": 0}
+_cache = {}                       # path -> {"size", "needle", "offset", "mentions", "rows"}: transcripts only grow, so each is read once, then only its new lines
 
 
 def default_root():
     return Path.home() / ".claude" / "projects"
 
 
-def _parse(path, needle):
-    """{message id: (timestamp, model, {kind: n})} for one transcript, or None if it never mentions the project."""
-    STATS["parsed"] += 1
-    mentions, rows = False, {}
+def _read_more(path, needle, state):
+    """Continue reading a transcript from where the last read stopped (only complete lines), updating state in place:
+    {"offset", "mentions", "rows": {message id: (timestamp, model, {kind: n})}}."""
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                if not mentions and needle in line:
-                    mentions = True
-                if '"usage"' not in line:
-                    continue
-                try:
-                    d = json.loads(line)
-                except ValueError:
-                    continue
-                m = d.get("message") or {}
-                u = m.get("usage")
-                if d.get("type") != "assistant" or not isinstance(u, dict) or not m.get("id"):
-                    continue
-                cur = rows.get(m["id"])
-                vals = {k: int(u.get(k) or 0) for k in KINDS}
-                if cur:
-                    vals = {k: max(vals[k], cur[2][k]) for k in KINDS}
-                rows[m["id"]] = (d.get("timestamp") or "", m.get("model") or "unknown", vals)
+        with open(path, "rb") as f:
+            f.seek(state["offset"])
+            data = f.read()
     except OSError:
-        return None
-    return rows if mentions else None
+        return state
+    end = data.rfind(b"\n") + 1
+    state["offset"] += end
+    for raw in data[:end].splitlines():
+        STATS["lines"] += 1
+        line = raw.decode("utf-8", "replace")
+        if not state["mentions"] and needle in line:
+            state["mentions"] = True
+        if '"usage"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        m = d.get("message") or {}
+        u = m.get("usage")
+        if d.get("type") != "assistant" or not isinstance(u, dict) or not m.get("id"):
+            continue
+        cur = state["rows"].get(m["id"])
+        vals = {k: int(u.get(k) or 0) for k in KINDS}
+        if cur:
+            vals = {k: max(vals[k], cur[2][k]) for k in KINDS}
+        state["rows"][m["id"]] = (d.get("timestamp") or "", m.get("model") or "unknown", vals)
+    return state
 
 
 def _blank():
@@ -72,12 +77,15 @@ def collect(project, claude_dir=None, dirs=None):
             st = f.stat()
         except OSError:
             continue
-        key = (st.st_mtime_ns, st.st_size)
-        hit = _cache.get(f)
-        if not hit or hit[0] != key or hit[2] != needle:
-            hit = (key, _parse(f, needle), needle)
-            _cache[f] = hit
-        rows = hit[1]
+        state = _cache.get(f)
+        if not state or state["needle"] != needle or st.st_size < state["size"]:        # new, another project, or rewritten shorter: from the start
+            state = {"needle": needle, "offset": 0, "mentions": False, "rows": {}, "size": 0}
+            _cache[f] = state
+            STATS["parsed"] += 1
+        if st.st_size != state["size"]:
+            _read_more(f, needle, state)
+            state["size"] = st.st_size
+        rows = state["rows"] if state["mentions"] else None
         if not rows:
             continue
         used += 1

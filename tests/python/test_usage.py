@@ -90,3 +90,35 @@ def test_explicit_directories_are_used_when_given(claude, tmp_path):
     write(claude, "a.jsonl", [f'{{"cwd":"{proj}"}}', line("m1", today())])
     r = usage.collect(proj, None, dirs=[str(claude / "-p-one")])
     assert r["total"]["messages"] == 1
+
+
+def test_a_growing_transcript_is_read_incrementally(claude, tmp_path):
+    proj = tmp_path / "proj"
+    f = write(claude, "a.jsonl", [f'{{"cwd":"{proj}"}}'] + [line(f"m{i}", today()) for i in range(50)])
+    usage.collect(proj, claude)
+    before = usage.STATS["lines"]
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(line("new", today()) + "\n")
+    r = usage.collect(proj, claude)
+    assert r["total"]["messages"] == 51
+    assert usage.STATS["lines"] - before == 1                                   # only the appended line was read, not the 51 before it
+
+
+def test_a_half_written_last_line_is_picked_up_once_it_is_complete(claude, tmp_path):
+    proj = tmp_path / "proj"
+    f = write(claude, "a.jsonl", [f'{{"cwd":"{proj}"}}', line("m1", today())])
+    usage.collect(proj, claude)
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(line("m2", today())[:40])
+    assert usage.collect(proj, claude)["total"]["messages"] == 1
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(line("m2", today())[40:] + "\n")
+    assert usage.collect(proj, claude)["total"]["messages"] == 2
+
+
+def test_a_rewritten_shorter_file_is_read_from_the_start(claude, tmp_path):
+    proj = tmp_path / "proj"
+    f = write(claude, "a.jsonl", [f'{{"cwd":"{proj}"}}'] + [line(f"m{i}", today()) for i in range(5)])
+    usage.collect(proj, claude)
+    write(claude, "a.jsonl", [f'{{"cwd":"{proj}"}}', line("only", today())])
+    assert usage.collect(proj, claude)["total"]["messages"] == 1
