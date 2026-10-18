@@ -49,7 +49,7 @@ cd ~/cad/chairs && /path/to/cadchat start            # a command works on the pr
 ```
 
 **Coming back after a break:** `./cadchat start` (safe to repeat; each project gets its own port, the viewer shows the project name on top).
-The model switcher lists every model of the project, the chat shows the conversation of the model you are looking at, and the
+The model switcher lists every model of the project, the chat shows the whole conversation of the project (each question is labelled with the model it was about), and the
 **History** tab lists every earlier build of that model (script and parameters, with what you had asked for) with a Restore button.
 Chat replies only flow while an assistant session runs `tools/cadwatch.py`; the badge shows "Assistant away" when none does, and
 your messages wait (state "queued") until one starts.

@@ -1195,7 +1195,7 @@ let connOk = true;
 function setConn(ok) { if (ok !== connOk) { connOk = ok; $("conn").style.display = ok ? "none" : "block"; } }
 async function poll() {
   try {
-    const msgs = await (await fetch("/api/chat" + (curModel ? "?m=" + encodeURIComponent(curModel) : ""))).json();
+    const msgs = await (await fetch("/api/chat")).json();                 // the whole conversation of the project
     if (msgs.length !== shown) {
       const log = $("log");
       log.innerHTML = "";
@@ -1207,7 +1207,7 @@ async function poll() {
         if (m.role === "user") {
           const s = document.createElement("small");
           s.className = "st";
-          s.textContent = [on ? "on " + on : "", stateLabel(m.state)].filter(Boolean).join(" · ");
+          s.textContent = [m.model ?? "", on ? "on " + on : "", stateLabel(m.state)].filter(Boolean).join(" · ");
           if (s.textContent) d.appendChild(s);
         }
         log.appendChild(d);
@@ -1282,7 +1282,6 @@ async function switchModel(id) {
     stamps = (await (await fetch("/api/version")).json()).models;
   }
   curModel = id;
-  shown = -1;                                                         // the chat shows the conversation of this model
   try { localStorage.setItem("cad.model", id); } catch (e) { /* ignore */ }
   planesLoaded = false; collisions = []; activeCon = null; mPts = [];
   Object.keys(values).forEach((k) => delete values[k]);
