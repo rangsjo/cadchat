@@ -225,3 +225,17 @@ def dowel_butt(a, b, dia=8.0, count=2, depth=15.0, edge=30.0, clearance=0.1, dow
         dowels.append((f"dowel_{n + 1}", _cylinder(i, centre, dia / 2, plane - dl / 2, plane + dl / 2)))
     return Joint("dowel_butt", new_a, new_b, hardware=dowels, params=dict(dia=dia, count=count, depth=depth, edge=edge, clearance=clearance, dowel_len=dl),
                  notes=[f"{count} dowels {dia:g} x {dl:g} mm, holes {depth:g} mm deep in each board, {edge:g} mm from the ends"])
+
+
+CATALOG = [
+    ("dowel_butt", "Dowel butt joint", "Two boards face to face joined by round dowels: frames, carcass corners, tabletops. Quick and strong with a jig."),
+    ("dado", "Dado (housing)", "A groove across a board that takes the end of a shelf or divider: shelves, drawer runners. Stopped or through."),
+    ("rabbet", "Rabbet", "A step along an edge that takes another board: back panels, drawer bottoms, box corners."),
+    ("half_lap", "Half lap", "Two crossing boards each cut away by half the thickness so they interlock flush: frames, crossbars."),
+    ("mortise_tenon", "Mortise and tenon", "A tongue on the rail end in a pocket of the leg: the classic frame joint for legs, rails and doors."),
+]
+
+
+def catalog(thickness=18.0):
+    """The joints this module can cut with their usual proportions for boards of the given thickness (for menus and help)."""
+    return [{"kind": k, "label": label, "description": text, "defaults": defaults(k, thickness)} for k, label, text in CATALOG]

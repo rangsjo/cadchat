@@ -352,3 +352,86 @@ def test_assistant_can_be_started_from_the_viewer(server, tmp_path, monkeypatch)
     s, r = server.call("POST", "/api/assistant/start", {})
     assert s == 200 and r == {"ok": True, "state": "started"} and seen == [str(server.root.resolve())]
     assert server.call("POST", "/api/assistant/start", {}, token=None)[0] == 403
+
+
+# ---- menu backend: settings, projects, new model, saved versions, exports, joints --------------------------------------
+@pytest.fixture
+def cfg(tmp_path, monkeypatch):
+    monkeypatch.setenv("CADCHAT_HOME", str(tmp_path / "cfg"))
+    for v in ("CADCHAT_ASSISTANT_CMD", "CADCHAT_TERMINAL"):
+        monkeypatch.delenv(v, raising=False)
+    return tmp_path
+
+
+def test_settings_can_be_read_and_changed(server, cfg):
+    s, r = server.call("GET", "/api/settings")
+    assert r["assistant_cmd"] == "claude"
+    s, r = server.call("POST", "/api/settings", {"assistant_cmd": "myagent"})
+    assert r["ok"] and server.call("GET", "/api/settings")[1]["assistant_cmd"] == "myagent"
+    s, r = server.call("POST", "/api/settings", {"clearance": -5})
+    assert not r["ok"] and "clearance" in r["error"]
+    assert server.call("POST", "/api/settings", {"assistant_cmd": "x"}, token=None)[0] == 403
+
+
+def test_projects_listing_marks_the_current_one(server, cfg):
+    import projects
+    (server.root / "cadproject.json").write_text('{"name": "Here"}', encoding="utf-8")
+    projects.touch(server.root)
+    other = projects.init_project(cfg / "other")
+    s, r = server.call("GET", "/api/projects")
+    cur = [p for p in r["projects"] if p["current"]]
+    assert [p["path"] for p in cur] == [str(server.root.resolve())] and any(p["path"] == str(other) for p in r["projects"])
+
+
+def test_a_new_project_is_created_in_the_projects_folder_and_served(server, cfg, monkeypatch):
+    import cadchat, projects, settings
+    settings.save({"projects_dir": str(cfg / "work")})
+    monkeypatch.setattr(cadchat, "start_server", lambda root, *a, **k: {"url": "http://127.0.0.1:9999/", "port": 9999, "started": True, "pid": 1})
+    s, r = server.call("POST", "/api/project/new", {"name": "Dining chairs"})
+    assert r["ok"] and r["url"] == "http://127.0.0.1:9999/"
+    assert projects.is_project(cfg / "work" / "Dining-chairs") and projects.project_name(cfg / "work" / "Dining-chairs") == "Dining chairs"
+    assert not server.call("POST", "/api/project/new", {"name": "../evil"})[1]["ok"]
+
+
+def test_opening_a_project_only_works_for_projects(server, cfg, monkeypatch):
+    import cadchat, projects
+    monkeypatch.setattr(cadchat, "start_server", lambda root, *a, **k: {"url": f"http://127.0.0.1:9998/", "port": 9998, "started": True, "pid": 1})
+    p = projects.init_project(cfg / "other")
+    assert server.call("POST", "/api/project/open", {"path": str(p)})[1]["url"].startswith("http://127.0.0.1:")
+    assert not server.call("POST", "/api/project/open", {"path": str(cfg)})[1]["ok"]
+
+
+def test_new_model_from_a_template_or_the_library_is_built(server, cfg):
+    s, r = server.call("POST", "/api/model/new", {"kind": "part", "name": "plate"})
+    assert r["ok"] and server.call("GET", "/api/model?m=plate")[0] == 200
+    s, r = server.call("POST", "/api/model/new", {"library": "shaft", "name": "rod"})
+    assert r["ok"] and server.call("GET", "/api/model?m=rod")[0] == 200
+    assert not server.call("POST", "/api/model/new", {"kind": "part", "name": "plate"})[1]["ok"]            # exists
+    assert not server.call("POST", "/api/model/new", {"library": "nope", "name": "x"})[1]["ok"]
+
+
+def test_save_version_keeps_a_named_snapshot(server, write_script):
+    write_script("m", "mech")
+    server.call("POST", "/api/build", {"script": "m"})
+    s, r = server.call("POST", "/api/version/save", {"m": "m", "note": "good state"})
+    assert r["ok"]
+    hist = server.call("GET", "/api/history?m=m")[1]
+    assert hist[0]["note"] == "good state" and len(hist) == 2
+
+
+def test_exports_are_listed_and_downloadable_from_the_exports_folder_only(server, write_script):
+    (server.root / "exports").mkdir()
+    (server.root / "exports" / "m_open.step").write_text("STEP", encoding="utf-8")
+    (server.root / "exports" / "other.stl").write_text("STL", encoding="utf-8")
+    s, r = server.call("GET", "/api/exports?m=m")
+    assert [f["name"] for f in r] == ["m_open.step"]
+    s, body = server.call("GET", "/api/export/file?name=m_open.step")
+    assert s == 200 and body == "STEP"
+    assert server.call("GET", "/api/export/file?name=../.cad/token")[0] in (400, 404)
+
+
+def test_joint_library_lists_kinds_with_proportions_for_a_thickness(server):
+    s, r = server.call("GET", "/api/joints?t=18")
+    kinds = {j["kind"]: j for j in r}
+    assert {"dowel_butt", "dado", "rabbet", "half_lap", "mortise_tenon"} <= set(kinds)
+    assert kinds["mortise_tenon"]["defaults"]["tenon_t"] == 6 and kinds["dado"]["description"]

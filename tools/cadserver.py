@@ -22,8 +22,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import cadchat
 import history
+import joints
 import launcher
+import projects
+import settings
 from cadwatch import read_jsonl, unanswered
 
 HERE = Path(__file__).resolve().parent
@@ -216,6 +220,79 @@ class App:
             f.write_text(old, encoding="utf-8") if old is not None else f.unlink()
             raise
 
+    # ---- menu backend ---------------------------------------------------------------------------------------
+    def projects_list(self):
+        cur = str(self.root)
+        if projects.is_project(self.root):
+            projects.touch(self.root)
+        known = projects.known_projects()
+        out = [{**p, "current": p["path"] == cur} for p in known]
+        if not any(p["current"] for p in out):
+            out.insert(0, {"path": cur, "name": self.name, "current": True, "last_used": time.time()})
+        return {"projects": out, "projects_dir": str(settings.projects_dir())}
+
+    def project_new(self, name):
+        name = str(name or "").strip()
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$", name):
+            raise Problem(200, "name: letters, digits, spaces, _ or - (start with a letter or digit)")
+        base = settings.projects_dir()
+        path = base / re.sub(r"\s+", "-", name)
+        if not path.resolve().is_relative_to(base):
+            raise Problem(200, "bad project name")
+        try:
+            projects.init_project(path, name)
+        except FileExistsError:
+            raise Problem(200, f"a project named '{name}' already exists in {base}")
+        return {"ok": True, **self._serve(path)}
+
+    def project_open(self, path):
+        p = Path(str(path or "")).expanduser().resolve()
+        if not projects.is_project(p):
+            raise Problem(200, f"{p} is not a cadchat project")
+        projects.touch(p)
+        return {"ok": True, **self._serve(p)}
+
+    def _serve(self, path):
+        if Path(path).resolve() == self.root:
+            return {"url": None, "port": None}
+        try:
+            info = cadchat.start_server(path)
+        except RuntimeError as e:
+            raise Problem(200, str(e))
+        return {"url": info["url"], "port": info["port"]}
+
+    def model_new(self, d):
+        name = str(d.get("name") or "")
+        try:
+            if d.get("library"):
+                projects.add_from_library(str(d["library"]), self.root, name or None)
+                name = name or str(d["library"])
+            else:
+                cadchat.create(str(d.get("kind")), name, self.root)
+        except (ValueError, FileExistsError) as e:
+            raise Problem(200, str(e))
+        self.build(name)
+        return {"ok": True, "id": name}
+
+    def save_version(self, mid, note):
+        script = self.script_of(mid)
+        sid = history.snapshot(self.root, mid, script.relative_to(self.root).as_posix(), note=str(note or "Saved version")[:200], force=True)
+        return {"ok": True, "id": sid}
+
+    def exports(self, mid):
+        d = self.root / "exports"
+        if not ID_RE.match(mid or "") or not d.is_dir():
+            return []
+        return [{"name": f.name, "size": f.stat().st_size} for f in sorted(d.iterdir()) if f.is_file() and f.name.startswith(mid)]
+
+    def export_file(self, name):
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$", name or ""):
+            raise Problem(400, "bad file name")
+        f = (self.root / "exports" / name).resolve()
+        if not f.is_relative_to((self.root / "exports").resolve()) or not f.is_file():
+            raise Problem(404, "no such export")
+        return f
+
     def restore(self, mid, sid):
         script = self.script_of(mid)
         with self.lock:
@@ -319,6 +396,27 @@ def make_handler(app):
                 if not f.exists():
                     raise Problem(404, "no such model")
                 return self._send(200, f.read_text(encoding="utf-8"))
+            if p == "/api/settings":
+                return self._json(settings.load())
+            if p == "/api/projects":
+                return self._json(app.projects_list())
+            if p == "/api/exports":
+                return self._json(app.exports(q.get("m", [""])[0]))
+            if p == "/api/export/file":
+                f = app.export_file(q.get("name", [""])[0])
+                body = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", f'attachment; filename="{f.name}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+            if p == "/api/joints":
+                try:
+                    t = float(q.get("t", ["18"])[0])
+                except ValueError:
+                    raise Problem(400, "bad thickness")
+                return self._json(joints.catalog(t))
             if p == "/api/assistant":
                 return self._json(app.assistant_state())
             if p == "/api/chat":
@@ -356,6 +454,19 @@ def make_handler(app):
                 vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
                 if p == "/api/check":
                     return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/settings":
+                    try:
+                        return self._json({"ok": True, "settings": settings.save(body)})
+                    except ValueError as e:
+                        raise Problem(200, str(e))
+                if p == "/api/project/new":
+                    return self._json(app.project_new(body.get("name")))
+                if p == "/api/project/open":
+                    return self._json(app.project_open(body.get("path")))
+                if p == "/api/model/new":
+                    return self._json(app.model_new(body))
+                if p == "/api/version/save":
+                    return self._json(app.save_version(body.get("m"), body.get("note")))
                 if p == "/api/assistant/start":
                     return self._json({"ok": True, "state": launcher.start_assistant(app.root)})
                 if p == "/api/restore":

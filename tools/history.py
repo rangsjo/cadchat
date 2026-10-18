@@ -42,21 +42,23 @@ def _params(root, model):
         return {}
 
 
-def snapshot(root, model, script_rel):
-    """Store the script and params as they are now. Returns the snapshot id, or None if this state is already the newest one."""
+def snapshot(root, model, script_rel, note=None, force=False):
+    """Store the script and params as they are now. Returns the snapshot id, or None if this state is already the newest one
+    (force=True stores it anyway, e.g. a named version; note replaces the recorded last request)."""
     d = _hist(root, model)
     script = (Path(root) / script_rel).read_text(encoding="utf-8")
     params = _params(root, model)
     digest = hashlib.sha1((script + "\0" + json.dumps(params, sort_keys=True)).encode()).hexdigest()[:8]
     existing = sorted(p.name for p in d.iterdir()) if d.is_dir() else []
-    if existing and existing[-1].endswith("-" + digest):
+    if existing and existing[-1].endswith("-" + digest) and not force:
         return None
-    sid = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}-{digest}"
+    t = time.time()
+    sid = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(t * 1000000) % 1000000:06d}-{digest}"
     s = d / sid
     s.mkdir(parents=True)
     (s / "script.py").write_text(script, encoding="utf-8")
     (s / "params.json").write_text(json.dumps(params), encoding="utf-8")
-    (s / "note.txt").write_text(_last_request(root, model), encoding="utf-8")
+    (s / "note.txt").write_text(note if note is not None else _last_request(root, model), encoding="utf-8")
     for old in sorted(p.name for p in d.iterdir())[:-KEEP]:
         shutil.rmtree(d / old, ignore_errors=True)
     return sid

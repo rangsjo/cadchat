@@ -8,6 +8,12 @@ sys.path.insert(0, str(REPO / "tools"))
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolated_user_config(tmp_path_factory, monkeypatch):
+    """Tests never read or write the real ~/.config/cadchat (registry of projects, settings)."""
+    monkeypatch.setenv("CADCHAT_HOME", str(tmp_path_factory.mktemp("cfg")))
+
+
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     """An empty cadchat project in a temp dir; cadview/cadserver use it through CADCHAT_ROOT."""

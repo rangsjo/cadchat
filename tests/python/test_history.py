@@ -70,3 +70,11 @@ def test_unknown_snapshots_and_models_are_errors(proj):
         history.read(proj, "m", "nope")
     with pytest.raises(ValueError):
         history.list_history(proj, "../x")
+
+
+def test_a_named_version_is_kept_even_if_nothing_changed(proj):
+    write_script(proj, "v = 1\n")
+    history.snapshot(proj, "m", "parts/m.py")
+    sid = history.snapshot(proj, "m", "parts/m.py", note="before the leg rework", force=True)
+    items = history.list_history(proj, "m")
+    assert len(items) == 2 and items[0]["id"] == sid and items[0]["note"] == "before the leg rework"

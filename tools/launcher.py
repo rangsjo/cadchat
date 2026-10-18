@@ -14,6 +14,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import settings
+
 APP = Path(__file__).resolve().parent.parent
 TERMINALS = [("x-terminal-emulator", ["-e"]), ("gnome-terminal", ["--"]), ("konsole", ["-e"]), ("xterm", ["-e"])]
 
@@ -59,14 +61,14 @@ def uninstall(apps_dir=None):
 
 
 def assistant_argv(project):
-    cmd = shlex.split(os.environ.get("CADCHAT_ASSISTANT_CMD") or "claude")
+    cmd = shlex.split(os.environ.get("CADCHAT_ASSISTANT_CMD") or settings.load()["assistant_cmd"])
     prompt = (f"Start a cadchat session for the project at {project}: follow the cad-viewer skill (start the viewer if it is not running, "
               f"arm the message watch with CADCHAT_ROOT={project}, then wait for popup messages and answer them).")
     return cmd + [prompt]
 
 
 def terminal_argv(cmd):
-    given = os.environ.get("CADCHAT_TERMINAL")
+    given = os.environ.get("CADCHAT_TERMINAL") or settings.load()["terminal"]
     if given:
         return shlex.split(given) + list(cmd)
     for name, flag in TERMINALS:
