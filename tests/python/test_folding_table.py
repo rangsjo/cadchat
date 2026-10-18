@@ -74,7 +74,7 @@ def test_dealer_sizes(ns):
     p = ns["presets"]
     assert 2780 <= size(ns, p["open"])[0] <= 2820                  # 280 cm fully extended
     assert 1490 <= size(ns, p["one_leaf"])[0] <= 1530              # 151 cm: the centre folded, both outer sheets still up
-    assert 225 <= size(ns, p["closed"])[0] <= 235                  # 23 cm folded
+    assert 205 <= size(ns, p["closed"])[0] <= 225                  # folded: the dealer's 23 cm less the trimmed base tops
     for k in ("open", "one_leaf", "closed"):
         x, y, z = size(ns, p[k])
         assert y == 900 and z == 735                               # 90 cm deep, 73.5 cm high
@@ -276,3 +276,10 @@ def test_hinges_are_slim_and_let_into_the_wood(ns):
     post = parts["post_front_R"]
     b = post.bounding_box()
     assert post.volume < b.size.X * b.size.Y * b.size.Z - 2 * 15 * 40 * 17 - 1                  # recesses for the leaves on top of the mortises
+
+
+def test_base_tops_are_only_a_little_wider_than_the_pillar_block(ns):
+    top, post = bb(ns, {}, "top_R"), bb(ns, {}, "post_front_R")
+    assert top.min.X <= post.min.X and post.max.X <= top.max.X                                          # still carries the pillar
+    assert 4 <= top.max.X - post.max.X <= 8 and top.size.X <= post.size.X + 12                          # a small margin, no more
+    assert 2780 <= size(ns, ns["presets"]["open"])[0] <= 2820                                           # open length kept (longer outer sheets)
