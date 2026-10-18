@@ -69,7 +69,7 @@ def test_part_sizes_are_those_of_the_posed_part(model):
 
 def test_the_page_is_self_contained_and_carries_the_data(model, project):
     html = share.model_page(model, "demo")
-    assert "<title>demo" in html and "Lid hinge" in html and "hinge at x = 50" in html
+    assert "<title>Demo sheet" in html and "Lid hinge" in html and "hinge at x = 50" in html
     assert "function pickPart" in html and "function formatMm" in html                  # the tested helpers are inlined
     assert not re.search(r"(src|href)=[\"']https?://", html) and "cdn." not in html and "<img" not in html
     data = json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>', html, re.S).group(1))
@@ -94,3 +94,14 @@ def test_build_site_can_be_limited_to_some_models(model, project):
 def test_the_data_stays_small_enough_for_a_phone(model):
     html = share.model_page(model, "demo")
     assert len(html) < 400_000
+
+
+def test_fragment_for_artifacts_has_no_document_tags_and_keeps_title_style_and_script(model):
+    frag = share.as_fragment(share.model_page(model, "demo"))
+    assert frag.startswith("<title>Demo sheet</title>") and "<style>" in frag and "<canvas" in frag and '<script id="data"' in frag
+    assert "<!doctype" not in frag.lower() and "<html" not in frag and not re.search(r"<head[ >]", frag) and "<body" not in frag
+
+
+def test_both_themes_follow_the_viewer_setting(model):
+    page = share.model_page(model, "demo")
+    assert 'prefers-color-scheme:dark){:root:not([data-theme="light"])' in page and ':root[data-theme="dark"]' in page

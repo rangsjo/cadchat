@@ -205,6 +205,7 @@ def main(argv=None, root=None):
     sh = sub.add_parser("share")
     sh.add_argument("--out")
     sh.add_argument("--model", action="append")
+    sh.add_argument("--fragment", action="store_true", help="also write <model>.fragment.html without doctype/head, for publishing as an artifact")
     sh.add_argument("--serve", action="store_true", help="also serve the folder on the local network (read only) and print the address for the phone")
     sh.add_argument("--port", type=int, default=8780)
     ap_ = sub.add_parser("app")
@@ -262,6 +263,9 @@ def main(argv=None, root=None):
             import share
             out = Path(a.out) if a.out else root / "share"
             files = share.build_site(root, out, a.model)
+            if a.fragment:
+                for f in [f for f in files if f.name != "index.html"]:
+                    f.with_suffix(".fragment.html").write_text(share.as_fragment(f.read_text(encoding="utf-8")), encoding="utf-8")
             print(f"wrote {len(files)} files to {out}: open {out / 'index.html'}")
             if a.serve:
                 import functools

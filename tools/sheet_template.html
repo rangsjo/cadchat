@@ -1,10 +1,11 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover">
-<title>__TITLE__ · workshop sheet</title>
+<title>__PAGETITLE__</title>
 <style>
 :root{--bg:#f4f4f2;--ink:#1d1f22;--dim:#6b7078;--card:#fff;--line:#d6d6d2;--acc:#e08a00;--dim-col:#0a6bd6}
-@media (prefers-color-scheme:dark){:root{--bg:#1c1e21;--ink:#ececec;--dim:#9aa0a6;--card:#2a2d31;--line:#3b3f45;--acc:#f0a830;--dim-col:#6cb2ff}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1e21;--ink:#ececec;--dim:#9aa0a6;--card:#2a2d31;--line:#3b3f45;--acc:#f0a830;--dim-col:#6cb2ff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1c1e21;--ink:#ececec;--dim:#9aa0a6;--card:#2a2d31;--line:#3b3f45;--acc:#f0a830;--dim-col:#6cb2ff;color-scheme:dark}
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px system-ui,sans-serif;overflow:hidden;-webkit-text-size-adjust:100%}
 #app{display:flex;flex-direction:column;height:100%;height:100dvh}
 header{display:flex;align-items:center;gap:8px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top))}

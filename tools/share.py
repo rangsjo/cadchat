@@ -180,7 +180,15 @@ def model_page(model, mid):
             "params": [{"name": p["name"], "value": p["value"], "unit": p.get("unit", ""), "desc": p.get("desc", "")} for p in model.get("params", [])]}
     text = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
     tpl = (HERE / "sheet_template.html").read_text(encoding="utf-8")
-    return tpl.replace("__TITLE__", html.escape(mid)).replace("__DATA__", text).replace("__SHEETJS__", _sheet_js())
+    return tpl.replace("__PAGETITLE__", html.escape(mid.replace("_", " ").capitalize() + " sheet")).replace("__TITLE__", html.escape(mid)).replace("__DATA__", text).replace("__SHEETJS__", _sheet_js())
+
+
+def as_fragment(page):
+    """The page as the Artifact tool wants it (it adds doctype, head and body itself): title, style, body content."""
+    title = re.search(r"<title>.*?</title>", page, re.S).group(0)
+    style = re.search(r"<style>.*?</style>", page, re.S).group(0)
+    body = re.search(r"<body>(.*)</body>", page, re.S).group(1)
+    return f"{title}\n{style}\n{body}"
 
 
 def index_page(entries):
