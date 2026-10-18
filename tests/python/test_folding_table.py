@@ -219,3 +219,16 @@ def test_base_is_two_pillars_joined_by_a_top_and_a_low_beam_with_pockets_for_the
         leg, beam = bb(ns, closed, f"gate_{g}_leg_R"), bb(ns, closed, "beam_top_R")
         assert beam.min.X - 0.01 <= leg.min.X and leg.max.X <= beam.max.X + 0.01                                        # the leg sits inside the beam: interleaved
         assert beam.min.Y < leg.min.Y and leg.max.Y < beam.max.Y
+
+
+def test_beams_are_tenoned_into_the_fixed_legs(ns):
+    names = {c["id"] for c in ns["constraints"]}
+    for s in SIDES:
+        for beam in ("beam_top", "beam_low"):
+            for post in ("front", "back"):
+                assert f"{beam}_{post}_{s}" in names                                                    # one mortise and tenon per end
+    parts = {p["name"]: p["shape"] for p in ns["parts"]}
+    beam, post = bb(ns, {}, "beam_top_R"), bb(ns, {}, "post_front_R")
+    assert beam.max.Y > post.min.Y + 20 and beam.min.Y < -post.min.Y - 20                                # the tenons enter the legs
+    b = parts["post_front_R"].bounding_box()
+    assert parts["post_front_R"].volume < b.size.X * b.size.Y * b.size.Z - 2 * 15 * 40 * 17             # two mortises in each leg

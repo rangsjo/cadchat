@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import exchange
 from cadview import load_params, params_out, publish_kinematic
 from kinematics import Mechanism, mirrored_joint
+import joints as JN
 
 # Folding drop-leaf table, built as a jointed mechanism. Reconstructed from photos and the dealer's sizes of a 1930s folding table
 # (folded 23 cm, one leaf up 151 cm, fully open 280 cm, 90 cm deep, 73.5 cm high). Chain of six sheets, left to right:
@@ -115,13 +116,24 @@ R.append(("outer", box(x_ef_o + g, x_ef_o + outer_w, -depth / 2, depth / 2, uz, 
 ya_out, yb_in = y_h - gate_len, -y_h + gate_len
 pockets = (box(bx1 - leg - 0.5, bx1 + 1, ya_out - 1.5, ya_out + leg + 1.5, -1, height + 1)
            + box(bx0 - 1, bx0 + leg + 0.5, yb_in - leg - 1.5, yb_in + 1.5, -1, height + 1))
-R.append(("beam_top", shift(box(bx0, bx1, -y_h, y_h, uz - beam_h, uz) - pockets), "slide"))
-R.append(("beam_low", shift(box(bx0, bx1, -y_h, y_h, low_beam_z, low_beam_z + beam_h) - pockets), "slide"))
+# the beams enter the fixed legs with a mortise and tenon at each end (tenon_len into the leg, a third of the beam thickness thick)
+tenon_len = post * 2 / 3
+beam_raw = {"beam_top": box(bx0, bx1, -y_h - tenon_len, y_h + tenon_len, uz - beam_h, uz),
+            "beam_low": box(bx0, bx1, -y_h - tenon_len, y_h + tenon_len, low_beam_z, low_beam_z + beam_h)}
+post_raw = {name: box(bx0, bx1, *sorted((sgn * y_h, sgn * (y_h + post))), 0, uz) for sgn, name in ((1, "front"), (-1, "back"))}
+tenon_joints = []                                                               # (beam, post, Joint) for the constraint list
+for beam in beam_raw:
+    for pn in post_raw:
+        j = JN.mortise_tenon(beam_raw[beam], post_raw[pn], "y", tenon_len=tenon_len, shoulder=post / 4)
+        beam_raw[beam], post_raw[pn] = j.a, j.b
+        tenon_joints.append((beam, pn, j))
+for beam, shape in beam_raw.items():
+    R.append((beam, shift(shape - pockets), "slide"))
 R.append(("hinge_pin_barrel", barrel(g / 2, pin_z), "fold"))
 R.append(("hinge_de_barrel", barrel(x_de_o, uz), "slide"))
 R.append(("hinge_ef_barrel", barrel(x_ef_o, uz), "slide"))
-for sgn, name in ((1, "front"), (-1, "back")):
-    R.append((f"post_{name}", shift(box(bx0, bx1, *sorted((sgn * y_h, sgn * (y_h + post))), 0, uz)), "slide"))
+for name, shape in post_raw.items():
+    R.append((f"post_{name}", shift(shape), "slide"))
 for n, sh in frame_parts():
     R.append((n, shift(sh), n.rsplit("_", 1)[0]))
 
@@ -187,6 +199,10 @@ for sfx in "RL":
                  parts=[n("post_front" if g_ == "out" else "post_back"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")], params=["leg", "gate_len", "post"],
                  expr=f"swings {what}; open it stands {fmt(gate_len * 0.707)} mm out at 45 deg and carries the sheet, folded it lies flat in the pocket of the beams"),
         ]
+for sfx in "RL":
+    for beam, pn, j in tenon_joints:
+        c = j.as_constraint(f"{beam}_{pn}_{sfx}", f"{beam}_{sfx}", f"post_{pn}_{sfx}")
+        constraints.append(c)
 total_open = 2 * (x_ef_o + outer_w)
 constraints += [
     dict(id="dim_open", kind="dimension", label="Open length", a=None, b=None,
