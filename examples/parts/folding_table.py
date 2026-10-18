@@ -82,34 +82,52 @@ def frame_parts():
     xs = bx1 - leg + (leg - stretcher_t) / 2
     turn = Axis((bx1, y_h, 0), (0, 0, 1))
     out += [("gate_out_leg", box(bx1 - leg, bx1, ya, ya + leg, 0, uz).rotate(turn, 45)),
-            ("gate_out_stretcher", box(xs, xs + stretcher_t, ya + leg, y_h, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45))]
+            ("gate_out_stretcher", recess(box(xs, xs + stretcher_t, ya + leg, y_h, low_z - stretcher_h / 2, low_z + stretcher_h / 2), "out", hinge_zs["out"].values(), 1).rotate(turn, 45))]
     zb = uz - beam_h - 5 - stretcher_h / 2                                   # brace under the top beam: stiffens the outer leg against racking
-    out.append(("gate_out_brace", box(xs, xs + stretcher_t, ya + leg, y_h, zb - stretcher_h / 2, zb + stretcher_h / 2).rotate(turn, 45)))
+    out.append(("gate_out_brace", recess(box(xs, xs + stretcher_t, ya + leg, y_h, zb - stretcher_h / 2, zb + stretcher_h / 2), "out", hinge_zs["out"].values(), 1).rotate(turn, 45)))
     # inner leg: hinge corner (bx0, -y_h), flat along +y
     yb = -y_h + gate_len
     xs = bx0 + (leg - stretcher_t) / 2
     turn = Axis((bx0, -y_h, 0), (0, 0, 1))
     out += [("gate_in_leg", box(bx0, bx0 + leg, yb - leg, yb, 0, uz).rotate(turn, 45)),
-            ("gate_in_stretcher", box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45)),
-            ("gate_in_brace", box(xs, xs + stretcher_t, -y_h, yb - leg, zb - stretcher_h / 2, zb + stretcher_h / 2).rotate(turn, 45))]
+            ("gate_in_stretcher", recess(box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2), "in", hinge_zs["in"].values(), 1).rotate(turn, 45)),
+            ("gate_in_brace", recess(box(xs, xs + stretcher_t, -y_h, yb - leg, zb - stretcher_h / 2, zb + stretcher_h / 2), "in", hinge_zs["in"].values(), 1).rotate(turn, 45))]
     return out
 
 
 brace_z = uz - beam_h - 5 - stretcher_h / 2
 hinge_zs = {"out": {"low": low_z, "top": brace_z}, "in": {"low": low_z, "top": brace_z}}
+hinge_r_leg, leaf_w, leaf_t, leaf_h = 2.5, 34.0, 1.2, stretcher_h - 4
+HINGE_AT = {"out": (bx1, y_h, 1, 1), "in": (bx0, -y_h, -1, -1)}      # axis x, y; sx: outward in x; sy: towards the fixed leg in y
+
+
+def leaf_boxes(g_, z):
+    """Slim hinge: both leaves are let into the wood, flush with the outer face of the fixed leg (post) and of the stretcher / brace (2 mm further in),
+    and only a thin pin shows in the corner. Returns the leaf on the post and the leaf on the stretcher, with the leg in its folded (flat) position."""
+    cx, cy, sx, sy = HINGE_AT[g_]
+    return (box(*sorted((cx, cx - sx * leaf_t)), *sorted((cy, cy + sy * leaf_w)), z - leaf_h / 2, z + leaf_h / 2),
+            box(*sorted((cx - sx * 2, cx - sx * (2 + leaf_t))), *sorted((cy, cy - sy * leaf_w)), z - leaf_h / 2, z + leaf_h / 2))
+
+
+def recess(shape, g_, zs, which):
+    """`shape` with the hinge leaves let in at heights `zs`; which = 0 for the fixed leg, 1 for the stretcher or brace."""
+    for z in zs:
+        shape = shape - leaf_boxes(g_, z)[which]
+    return shape
 
 
 def hinge_parts():
-    """Surface-mounted brass hinges (barrel on the vertical axis, a leaf on the pillar's outer face and one on the stretcher or brace) at the
-    heights of the stretchers. Simplified: barrel and two flat leaves."""
-    hh, lw, lt = stretcher_h - 4, 34.0, 1.6
+    """Brass hinges at the heights of the stretchers: a thin pin on the vertical axis and a leaf let into the fixed leg and one into the stretcher
+    or brace. The leaf on the leg turns with it (built in the open position like the leg itself)."""
     out = []
-    for g_, cx, cy, sx, sy in (("out", bx1, y_h, 1, 1), ("in", bx0, -y_h, -1, -1)):        # sx: outward x, sy: towards the fixed leg
+    for g_, (cx, cy, sx, sy) in HINGE_AT.items():
+        turn = Axis((cx, cy, 0), (0, 0, 1))
         for pos, z in hinge_zs[g_].items():
             tag = f"hinge_gate_{g_}_{pos}"
-            out += [(f"{tag}_barrel", Pos(cx, cy, z) * Cylinder(hinge_r, hh), "slide"),
-                    (f"{tag}_post", box(*sorted((cx, cx + sx * lt)), *sorted((cy, cy + sy * lw)), z - hh / 2, z + hh / 2), "slide"),
-                    (f"{tag}_leaf", box(*sorted((cx - sx * 2, cx - sx * (2 - lt))), *sorted((cy, cy - sy * lw)), z - hh / 2, z + hh / 2), f"gate_{g_}")]
+            on_post, on_leg = leaf_boxes(g_, z)
+            out += [(f"{tag}_barrel", Pos(cx, cy, z) * Cylinder(hinge_r_leg, leaf_h), "slide"),
+                    (f"{tag}_post", on_post, "slide"),
+                    (f"{tag}_leaf", on_leg.rotate(turn, 45), f"gate_{g_}")]
     return out
 
 
@@ -154,7 +172,7 @@ R.append(("hinge_pin_barrel", barrel(g / 2, pin_z), "fold"))
 R.append(("hinge_de_barrel", barrel(x_de_o, uz), "slide"))
 R.append(("hinge_ef_barrel", barrel(x_ef_o, uz), "slide"))
 for name, shape in post_raw.items():
-    R.append((f"post_{name}", shift(shape), "slide"))
+    R.append((f"post_{name}", shift(recess(shape, "out" if name == "front" else "in", hinge_zs["out"].values(), 0)), "slide"))
 for n, sh in frame_parts():
     R.append((n, shift(sh), n.rsplit("_", 1)[0]))
 R += [(n, shift(sh), jt) for n, sh, jt in hinge_parts()]

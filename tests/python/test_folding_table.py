@@ -253,3 +253,26 @@ def test_fold_out_legs_hang_on_brass_hinges_with_leaves_on_the_leg_and_the_pilla
     barrel = bb(ns, {}, "hinge_gate_out_low_barrel_R")
     j = joints(ns)["gate_out_R"]["origin"]
     assert (barrel.min.X + barrel.max.X) / 2 == pytest.approx(j[0] + 0, abs=0.01) and (barrel.min.Y + barrel.max.Y) / 2 == pytest.approx(j[1], abs=0.01)   # on the hinge axis
+
+
+@pytest.mark.parametrize("g", GATES)
+@pytest.mark.parametrize("preset", ["open", "one_leaf", "closed"])
+def test_hinge_leaf_follows_its_leg_in_every_pose(ns, g, preset):
+    pose = ns["presets"][preset]
+    pin = bb(ns, pose, f"hinge_gate_{g}_low_barrel_R")                      # the pin rides on the base, so it marks the axis in every pose
+    ax, ay = (pin.min.X + pin.max.X) / 2, (pin.min.Y + pin.max.Y) / 2
+    ang = lambda n: math.degrees(math.atan2(*(lambda b: ((b.min.Y + b.max.Y) / 2 - ay, (b.min.X + b.max.X) / 2 - ax))(bb(ns, pose, n))))
+    for pos in ("low", "top"):
+        stretcher = f"gate_{g}_stretcher_R" if pos == "low" else f"gate_{g}_brace_R"
+        d = (ang(f"hinge_gate_{g}_{pos}_leaf_R") - ang(stretcher) + 180) % 360 - 180
+        assert abs(d) < 8, (g, pos, preset, d)
+
+
+def test_hinges_are_slim_and_let_into_the_wood(ns):
+    parts = {p["name"]: p["shape"] for p in ns["parts"]}
+    for g in GATES:
+        leaf = bb(ns, ns["presets"]["closed"], f"hinge_gate_{g}_low_leaf_R")
+        assert min(leaf.size.X, leaf.size.Y) <= 2.0 and ns["hinge_r_leg"] <= 3                  # thin leaves, a slim pin
+    post = parts["post_front_R"]
+    b = post.bounding_box()
+    assert post.volume < b.size.X * b.size.Y * b.size.Z - 2 * 15 * 40 * 17 - 1                  # recesses for the leaves on top of the mortises
