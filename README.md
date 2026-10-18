@@ -34,6 +34,13 @@ python3 -m venv .venv
 ./cadchat start                  # viewer in the background: http://127.0.0.1:8765
 ```
 
+### The menu bar
+
+**File** (New project, New model from a template or the library, Open recent projects, Save version, Import, Export: pose STL, cut list, screenshot, workshop site for the
+phone, and any STEP/STL your scripts wrote to `exports/`, Settings) · **View** (camera views and the display switches) · **Tools** (measure, section, isolate, collision check,
+Joint library with the usual proportions) · **Assistant** (start listening, open chat, agent settings) · **Help** (quick start, shortcuts, how to resume, about).
+**Settings** keeps the agent command, terminal, folder for new projects, default glue gap and chat behaviour in `~/.config/cadchat/settings.json`.
+
 ### Projects, and picking up again later
 
 The app and your work are separate. A **project** is a folder with its own `parts/` (model scripts), `exports/` and `.cad/`

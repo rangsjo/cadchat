@@ -28,6 +28,7 @@ import joints
 import launcher
 import projects
 import settings
+import share
 from cadwatch import read_jsonl, unanswered
 
 HERE = Path(__file__).resolve().parent
@@ -411,6 +412,8 @@ def make_handler(app):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 return self.wfile.write(body)
+            if p == "/api/library":
+                return self._json(projects.library_list())
             if p == "/api/joints":
                 try:
                     t = float(q.get("t", ["18"])[0])
@@ -454,6 +457,10 @@ def make_handler(app):
                 vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
                 if p == "/api/check":
                     return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/share/build":
+                    mid = body.get("m")
+                    files = share.build_site(app.root, app.root / "share", [mid] if mid else None)
+                    return self._json({"ok": True, "files": [f.name for f in files], "path": str(app.root / "share")})
                 if p == "/api/settings":
                     try:
                         return self._json({"ok": True, "settings": settings.save(body)})

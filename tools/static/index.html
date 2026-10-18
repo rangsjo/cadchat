@@ -5,7 +5,7 @@
 :root{--bg:#2b2d31;--panel:#1f2125;--line:#3a3d43;--fg:#e6e6e6;--dim:#9aa0a6;--acc:#f0a830;--user:#2f6fdd}
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif;overflow:hidden}
 #view{position:fixed;inset:0}
-#side{position:fixed;left:10px;top:10px;width:330px;max-height:calc(100% - 20px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+#side{position:fixed;left:10px;top:40px;width:330px;max-height:calc(100% - 50px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px}
 #tabs{display:flex;border-bottom:1px solid var(--line)}
 #tabs div{flex:1;text-align:center;padding:7px 2px;font-size:12px;cursor:pointer;color:var(--dim)}
 #tabs div.on{color:var(--fg);border-bottom:2px solid var(--acc)}
@@ -30,10 +30,23 @@ h4:first-child{margin-top:2px}
 body.insp #tip{display:none!important}
 .cut{display:grid;grid-template-columns:1fr 32px 1.5fr 48px;gap:6px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px}
 .cut span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cut:hover{background:#33363c}.cut.sel{background:var(--acc);color:#111}
+#menubar{position:fixed;left:0;right:0;top:0;height:30px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:stretch;z-index:30;font-size:13px;user-select:none}
+.mb-top{padding:0 14px;display:flex;align-items:center;cursor:pointer;color:var(--fg)}.mb-top:hover,.mb-top.on{background:#33363c}
+.mb-drop{position:absolute;top:30px;min-width:230px;background:var(--panel);border:1px solid var(--line);border-radius:0 0 8px 8px;padding:4px 0;box-shadow:0 8px 24px #0008;z-index:31}
+.mb-drop.sub{top:-5px;left:100%;border-radius:8px}
+.mb-row{position:relative;display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;white-space:nowrap}.mb-row:hover{background:#33363c}
+.mb-row.dis{color:#6b7078;cursor:default}.mb-row.dis:hover{background:none}.mb-chk{width:12px;color:var(--acc)}.mb-lbl{flex:1}.mb-key,.mb-arrow{color:var(--dim);font-size:11px}
+.mb-sep{height:1px;background:var(--line);margin:4px 0}
+.modal{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;z-index:50}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;min-width:300px;max-width:min(620px,92vw);max-height:86vh;overflow:auto}
+.mbox h3{margin:0 0 10px;font-size:15px}.mbody label{display:block;margin:8px 0 2px;color:var(--dim)}.mbody p{margin:6px 0}
+.mfield,.mbody input[type=text],.mbody input[type=number],.mbody select{width:100%;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:5px 8px;font:inherit;margin-top:3px}
+.mbtns{margin-top:14px;text-align:right}.mbody table{border-collapse:collapse;width:100%}.mbody td,.mbody th{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.mbody kbd{background:#33363c;border-radius:4px;padding:1px 6px;font:12px monospace}.mbody code{background:#14161a;padding:1px 5px;border-radius:4px}
 #projBar{padding:7px 10px 0;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hist{padding:5px 6px;border-radius:5px;margin:3px 0;background:#262a30;display:flex;gap:8px;align-items:center}
 .hist small{color:var(--dim);display:block}.hist span.t{flex:1;overflow:hidden}
-#dispMenu{position:fixed;left:350px;top:10px;z-index:15;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:190px}
+#dispMenu{position:fixed;left:350px;top:40px;z-index:15;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:190px}
 #dispMenu label{display:block;padding:2px 0;cursor:pointer}
 #modelBar{display:flex;gap:6px;padding:8px 8px 2px}#modelBar select{flex:1;background:#14161a;border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:4px 6px;font:inherit}
 #modelStat{padding:0 10px 6px;color:var(--dim);font-size:12px;min-height:14px}
@@ -64,10 +77,11 @@ body.insp #tip{display:none!important}
 .dot.ok{background:#6bd66b}.dot.off{background:#e0a030}.dot.none{background:#9aa0a6}
 .m small.st{display:inline;opacity:.75;margin-left:6px}
 #fab{position:fixed;right:14px;bottom:14px;width:46px;height:46px;border-radius:50%;background:var(--acc);color:#111;border:0;font-size:20px;cursor:pointer}
-#conn{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#4a2323;color:#ffb0a8;border:1px solid #7a3a3a;border-radius:8px;padding:6px 12px;display:none;z-index:20}
+#conn{position:fixed;top:40px;left:50%;transform:translateX(-50%);background:#4a2323;color:#ffb0a8;border:1px solid #7a3a3a;border-radius:8px;padding:6px 12px;display:none;z-index:20}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head><body>
+<div id="menubar"></div>
 <div id="view"></div>
 <div id="side">
   <div id="projBar" title="The project this viewer serves (cadchat projects)"></div>

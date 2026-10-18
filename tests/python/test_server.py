@@ -435,3 +435,16 @@ def test_joint_library_lists_kinds_with_proportions_for_a_thickness(server):
     kinds = {j["kind"]: j for j in r}
     assert {"dowel_butt", "dado", "rabbet", "half_lap", "mortise_tenon"} <= set(kinds)
     assert kinds["mortise_tenon"]["defaults"]["tenon_t"] == 6 and kinds["dado"]["description"]
+
+
+def test_library_listing(server):
+    s, r = server.call("GET", "/api/library")
+    assert "shaft" in r and "joinery_demo" in r
+
+
+def test_the_workshop_site_can_be_built_from_the_viewer(server, write_script):
+    write_script("m", "mech")
+    server.call("POST", "/api/build", {"script": "m"})
+    s, r = server.call("POST", "/api/share/build", {"m": "m"})
+    assert r["ok"] and "m.html" in r["files"] and (server.root / "share" / "m.html").exists() and r["path"].endswith("share")
+    assert server.call("POST", "/api/share/build", {}, token=None)[0] == 403

@@ -9,6 +9,8 @@ import { defaultPlanes as defaultPlanesFor, clipPlane, storageKey } from "./lib/
 import { chooseModel, publishedSince } from "./lib/models.js";
 import { presence, stateLabel } from "./lib/assistant.js";
 import { DISPLAY_ITEMS, loadDisplay, saveDisplay, toggled, preset } from "./lib/display.js";
+import { mountMenubar, dialog, ask } from "./menubar.js";
+import { toAsciiStl } from "./lib/stl.js";
 
 const $ = (id) => document.getElementById(id);
 // If the server was restarted with a new token (an old version without a persisted token), reload once to pick it up.
@@ -1381,3 +1383,92 @@ function place(l) {
   layoutLabels.forEach(place);
   planeLbl.forEach((l) => { l.hidden = layoutMode || !disp.planes; place(l); });
 })();
+
+// ---------------------------------------------------------------- menu bar: File, View, Tools, Assistant, Help
+const api = async (path, body) => (await fetch(path, body === undefined ? undefined : { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify(body) })).json();
+const menuCache = { projects: [], library: [], joints: [], exports: [] };
+async function menuState(refresh) {
+  if (refresh || !menuCache.library.length) {
+    try {
+      const [p, l, j, x] = await Promise.all([api("/api/projects"), api("/api/library"), api("/api/joints?t=18"), curModel ? api("/api/exports?m=" + encodeURIComponent(curModel)) : []]);
+      Object.assign(menuCache, { projects: p.projects, library: l, joints: j, exports: x });
+    } catch (e) { /* server restarting: show what we have */ }
+  }
+  return { ...menuCache, curModel, assistant: lastAssistant ?? {}, display: disp, displayItems: DISPLAY_ITEMS };
+}
+const say = (t) => { $("modelStat").textContent = t; };
+const tabTo = (t) => document.querySelector(`#tabs div[data-p="${t}"]`)?.click();
+async function newModel(body, label) {
+  const r = await api("/api/model/new", body);
+  if (!r.ok) { dialog("Could not create the model", `<p>${r.error}</p>`); return; }
+  await refreshList(); await switchModel(r.id); say(`${label} ${r.id} created`);
+}
+async function openProjectResult(r) {
+  if (!r.ok) { dialog("Could not open the project", `<p>${r.error}</p>`); return; }
+  if (r.url) location.href = r.url;                                     // each project is served on its own port
+}
+function exportStl() {
+  const parts = meshes.filter((m) => m.visible).map((m) => ({ positions: m.geometry.attributes.position.array, index: m.geometry.index.array, matrix: m.matrixWorld.elements }));
+  download(`${model.name || curModel}_pose.stl`, toBinaryStl(parts), "model/stl");
+}
+function settingsDialog() {
+  api("/api/settings").then((c) => {
+    const f = (k, label, type = "text", hint = "") => `<label>${label}${hint ? ` <small style="color:var(--dim)">${hint}</small>` : ""}<input type="${type}" data-k="${k}" ${type === "checkbox" ? (c[k] ? "checked" : "") : `value="${String(c[k]).replace(/"/g, "&quot;")}"`}></label>`;
+    dialog("Settings", [f("assistant_cmd", "Assistant (agent) command", "text", "e.g. claude, or another agent started in a terminal"), f("terminal", "Terminal command", "text", "empty = first terminal found, e.g. gnome-terminal --"),
+      f("projects_dir", "Folder for new projects"), f("clearance", "Default glue gap for joints (mm)", "number"), f("auto_open_chat", "Open the chat when I select a part or the assistant answers", "checkbox"), `<p style="color:var(--dim)">Saved for all projects in ~/.config/cadchat/settings.json.</p>`].join(""), [
+      { label: "Cancel" },
+      { label: "Save", primary: true, onClick: async (c2) => {
+        const body = {};
+        c2.querySelectorAll("input[data-k]").forEach((i) => { body[i.dataset.k] = i.type === "checkbox" ? i.checked : i.type === "number" ? +i.value : i.value; });
+        const r = await api("/api/settings", body);
+        if (!r.ok) { c2.querySelector("p:last-child").textContent = r.error; c2.querySelector("p:last-child").style.color = "#ffb0a8"; return false; }
+        autoOpenChat = !!r.settings.auto_open_chat; say("Settings saved");
+      } }]);
+  });
+}
+async function jointsDialog(focus) {
+  const mk = async (t) => {
+    const list = await api("/api/joints?t=" + encodeURIComponent(t));
+    return list.map((j) => `<tr${j.kind === focus ? ' style="background:#33363c"' : ""}><td><b>${j.label}</b><br><small style="color:var(--dim)">${j.description}</small></td><td>${Object.entries(j.defaults).map(([k, v]) => `${k.replace(/_/g, " ")} ${Math.round(v * 10) / 10}`).join("<br>")}</td></tr>`).join("");
+  };
+  const d = dialog("Joint library", `<label>Board thickness (mm)<input type="number" id="jt" value="18" min="3" max="100"></label><table id="jtab"><tr><th>Joint</th><th>Usual proportions</th></tr>${await mk(18)}</table>
+    <p style="color:var(--dim)">In a model script: <code>import joints</code>, then <code>joints.dado(side, shelf)</code>. Demo with all five: library model <b>joinery_demo</b>.</p>`, [
+    { label: "Add the demo to this project", onClick: async () => { await newModel({ library: "joinery_demo", name: "joinery_demo" }, "Demo"); } },
+    { label: "Close", primary: true }]);
+  d.content.querySelector("#jt").oninput = async (e) => { const t = +e.target.value; if (t > 0) d.content.querySelector("#jtab").innerHTML = `<tr><th>Joint</th><th>Usual proportions</th></tr>` + (await mk(t)); };
+}
+const HELP = {
+  start: ["Quick start", `<p><b>Look:</b> drag to turn, wheel to zoom, click a part for its size. Pick a pose (open, closed...) or move the joint sliders.</p><p><b>Measure:</b> <kbd>M</kbd> then click two points. <kbd>S</kbd> adds a section plane. <kbd>I</kbd> isolates the selection.</p><p><b>Ask:</b> select a part, press <b>💬</b> and say what to change. The assistant answers in the chat and the model rebuilds.</p><p><b>Make:</b> the Make tab shows cut list and print plates. <b>History</b> restores any earlier build.</p><p><b>Phone:</b> File ▸ Export ▸ Workshop site builds pages with views, dimensions and tap-to-measure.</p>`],
+  keys: ["Keyboard shortcuts", `<table><tr><td><kbd>M</kbd></td><td>Measure</td></tr><tr><td><kbd>S</kbd></td><td>Section</td></tr><tr><td><kbd>I</kbd></td><td>Isolate selection</td></tr><tr><td><kbd>D</kbd></td><td>Dimensions</td></tr><tr><td><kbd>A</kbd></td><td>Select all parts</td></tr><tr><td><kbd>H</kbd></td><td>Hide or show all overlays</td></tr><tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous or next part</td></tr><tr><td><kbd>Esc</kbd></td><td>Clear, close menus</td></tr></table>`],
+  resume: ["Coming back after a break", `<p>Start the viewer with <code>./cadchat start</code> or the <b>CAD chat</b> icon. It opens the project you used last; <b>File ▸ Open recent</b> switches project.</p><p>The chat shows the whole conversation of the project. Replies only arrive while an assistant is listening: <b>Assistant ▸ Start listening</b> opens one in a terminal. Until then your messages wait.</p><p>Every build is kept in <b>History</b>; <b>File ▸ Save version</b> adds a named one.</p>`],
+};
+const ACTIONS = {
+  "project:new": async () => { const n = await ask("New project", "Name", "", "Create"); if (n) openProjectResult(await api("/api/project/new", { name: n })); },
+  "model:new:part": async () => { const n = await ask("New part", "Name (letters, digits, _ or -)", "", "Create"); if (n) newModel({ kind: "part", name: n }, "Part"); },
+  "model:new:mechanism": async () => { const n = await ask("New mechanism", "Name (letters, digits, _ or -)", "", "Create"); if (n) newModel({ kind: "mechanism", name: n }, "Mechanism"); },
+  "version:save": async () => { const n = await ask("Save version", "Note", "", "Save"); if (n && curModel) { const r = await api("/api/version/save", { m: curModel, note: n }); say(r.ok ? "Version saved" : "Could not save: " + r.error); loadHistory(); } },
+  import: () => $("importFile").click(),
+  "export:stl": exportStl,
+  "export:plates": () => { tabTo("make"); say("Plates are in the Make tab: STL per plate"); },
+  "export:cutlist": () => { tabTo("make"); setTimeout(() => { $("cutCsv").click(); tabTo("pose"); }, 60); },
+  "export:shot": () => renderer.domElement.toBlob((b) => b && download(`${curModel || "view"}.png`, b, "image/png")),
+  "export:site": async () => { const r = await api("/api/share/build", { m: curModel }); dialog("Workshop site", r.ok ? `<p>${r.files.length} files written to <code>${r.path}</code>.</p><p>On the phone: run <code>./cadchat share --serve</code> and open the address it prints (same wifi), or publish the page as an artifact.</p>` : `<p>${r.error}</p>`); },
+  settings: settingsDialog,
+  "view:iso": () => $("vIso").click(), "view:top": () => $("vTop").click(), "view:front": () => $("vFront").click(), "view:side": () => $("vSide").click(), "view:fit": () => $("vFit").click(),
+  "display:all": () => setDisp(preset("all")), "display:clean": () => setDisp(preset("clean")),
+  "tool:measure": () => $("tMeas").click(), "tool:section": () => $("tSec").click(), "tool:isolate": () => $("tIso").click(), "tool:check": () => scheduleCheck(),
+  "joints:open": () => jointsDialog(),
+  "assistant:start": () => $("astart").click(), "chat:open": () => openChat(),
+  "help:about": async () => { const v = await api("/api/version"); dialog("About cadchat", `<p>Code-CAD workbench: build123d models, a viewer with chat, measuring, sections, cut lists and a workshop site for the phone.</p><p>Project <b>${v.name}</b><br><code>${v.project}</code></p>`); },
+};
+async function runMenu(id) {
+  if (ACTIONS[id]) return ACTIONS[id]();
+  if (id.startsWith("project:open:")) return openProjectResult(await api("/api/project/open", { path: id.slice(13) }));
+  if (id.startsWith("model:lib:")) { const lib = id.slice(10); const n = await ask("Add from library", "Name in this project", lib, "Add"); if (n) newModel({ library: lib, name: n }, "Model"); return; }
+  if (id.startsWith("export:file:")) { location.href = "/api/export/file?name=" + encodeURIComponent(id.slice(12)); return; }
+  if (id.startsWith("display:")) return setDisp(toggled(disp, id.slice(8)));
+  if (id.startsWith("joint:")) return jointsDialog(id.slice(6));
+  if (id.startsWith("help:") && HELP[id.slice(5)]) { const [t, b] = HELP[id.slice(5)]; dialog(t, b); }
+}
+mountMenubar($("menubar"), menuState, runMenu);
+addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); ACTIONS["version:save"](); } });
