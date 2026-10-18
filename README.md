@@ -54,6 +54,17 @@ The model switcher lists every model of the project, the chat shows the whole co
 Chat replies only flow while an assistant session runs `tools/cadwatch.py`; the badge shows "Assistant away" when none does, and
 your messages wait (state "queued") until one starts.
 
+### On the phone, in the workshop
+
+```bash
+./cadchat share              # <project>/share/index.html + one page per model: static, self-contained, no server needed
+./cadchat share --serve      # the same, served on your wifi; prints the address to open on the phone
+```
+
+Each page shows the model in Front / Side / Top / 3D for every pose (open, folded, ...), with overall dimensions, tap a part for its size and position, **Measure**
+(tap two corners for the distance, across and up), a cut list and the joints with their numbers. Pinch to zoom, drag to move, double-tap to fit. Small hardware is drawn as boxes
+to keep the pages light (the table is 0.6 MB). Copy the folder to the phone, open it from any static host, or publish a page as an artifact.
+
 ### As an app (Ubuntu)
 
 ```bash

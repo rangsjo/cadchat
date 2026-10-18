@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover">
+<title>__TITLE__ · workshop sheet</title>
+<style>
+:root{--bg:#f4f4f2;--ink:#1d1f22;--dim:#6b7078;--card:#fff;--line:#d6d6d2;--acc:#e08a00;--dim-col:#0a6bd6}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1e21;--ink:#ececec;--dim:#9aa0a6;--card:#2a2d31;--line:#3b3f45;--acc:#f0a830;--dim-col:#6cb2ff}}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px system-ui,sans-serif;overflow:hidden;-webkit-text-size-adjust:100%}
+#app{display:flex;flex-direction:column;height:100%;height:100dvh}
+header{display:flex;align-items:center;gap:8px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top))}
+header a{color:var(--dim);text-decoration:none;font-size:22px;padding:0 6px}
+header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}header small{color:var(--dim)}
+.bar{display:flex;gap:6px;padding:4px 10px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}.bar::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;min-height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;display:flex;align-items:center}
+.chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}.chip.acc.on{background:var(--acc);color:#111;border-color:var(--acc)}
+#stage{position:relative;flex:1;min-height:0;touch-action:none}canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#info{padding:8px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line);min-height:62px}
+#info b{font-size:16px}#info .sz{font-size:20px;font-weight:600;letter-spacing:.01em}#info .dm{color:var(--dim)}
+#panel{position:absolute;inset:0;background:var(--bg);overflow:auto;padding:10px 12px;display:none;z-index:5}
+#panel h2{font-size:15px;margin:12px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+.row{display:flex;gap:10px;align-items:baseline;padding:11px 12px;margin:6px 0;border-radius:10px;background:var(--card);border:1px solid var(--line)}
+.row .q{min-width:30px;font-weight:600}.row .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.row .s{white-space:nowrap;font-variant-numeric:tabular-nums}
+.row small{display:block;color:var(--dim)}
+#x{position:sticky;top:0;float:right;z-index:6}
+</style></head><body>
+<div id="app">
+  <header><a href="index.html" title="All models">‹</a><h1>__TITLE__</h1><small id="overall"></small></header>
+  <div class="bar" id="poses"></div>
+  <div class="bar" id="views"></div>
+  <div class="bar" id="tools"></div>
+  <div id="stage"><canvas id="cv"></canvas>
+    <div id="panel"><button class="chip" id="x">Close ✕</button><div id="pbody"></div></div></div>
+  <div id="info"></div>
+</div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+__SHEETJS__
+const D = JSON.parse(document.getElementById("data").textContent);
+const VIEWS = [["front", "Front"], ["side", "Side"], ["top", "Top"], ["iso", "3D"]];
+const ROLE = { board: [206, 150, 92], top: [214, 160, 98], leg: [150, 100, 66], pillar: [160, 110, 72], beam: [176, 120, 78], hardware: [196, 176, 70], plate: [180, 180, 180] };
+const $ = (id) => document.getElementById(id);
+const S = { pose: D.default in D.scenes ? D.default : Object.keys(D.scenes)[0], view: "front", dims: true, measure: false, sel: new Set(), pts: [], zoom: 1, px: 0, py: 0 };
+const cv = $("cv"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1, fit = null, cache = null;
+
+function scene() {
+  const key = S.pose + "/" + S.view;
+  if (cache && cache.key === key) return cache;
+  const s = D.scenes[S.pose][S.view], t = new Float64Array(s.tris.length / 8 * 7), code = new Uint8Array(s.tris.length / 8);
+  for (let i = 0, o = 0, c = 0; i < s.tris.length; i += 8, o += 7, c++) {
+    t[o] = s.tris[i];
+    for (let k = 1; k <= 6; k++) t[o + k] = s.tris[i + k] / 10;
+    code[c] = s.tris[i + 7];
+  }
+  const seen = new Set(), pts = [];
+  for (let c = 0, o = 0; c < code.length; c++, o += 7) {
+    for (let e = 0; e < 3; e++) if (code[c] & (16 << e)) {
+      for (const k of [e, (e + 1) % 3]) {
+        const x = t[o + 1 + 2 * k], y = t[o + 2 + 2 * k], id = Math.round(x * 5) + "," + Math.round(y * 5);
+        if (!seen.has(id)) { seen.add(id); pts.push(x, y); }
+      }
+    }
+  }
+  cache = { key, t, code, pts, box: s.bbox.map((v) => v / 10) };
+  return cache;
+}
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  W = r.width; H = r.height;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  draw();
+}
+function base() { const sc = scene(); return fitView(sc.box, W, H, S.dims ? 58 : 28); }
+const toScreen = (p) => { const f = base(); return [W / 2 + S.zoom * (f.tx + f.scale * p[0] - W / 2) + S.px, H / 2 + S.zoom * (f.ty - f.scale * p[1] - H / 2) + S.py]; };
+const toModel = (q) => { const f = base(); return [((q[0] - S.px - W / 2) / S.zoom + W / 2 - f.tx) / f.scale, (f.ty - ((q[1] - S.py - H / 2) / S.zoom + H / 2)) / f.scale]; };
+const pxPerMm = () => base().scale * S.zoom;
+
+function colour(part, shade, sel) {
+  const role = D.parts[part].role, b = ROLE[role] ?? [190, 190, 190], k = 0.45 + 0.55 * shade / 9;
+  let c = b.map((v) => v * k);
+  if (sel) c = [c[0] * 0.4 + 255 * 0.6, c[1] * 0.4 + 150 * 0.6, c[2] * 0.4];
+  return `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+}
+function drawDim(a, b, off, label, col) {            // model points a, b; off = pixels to push the line away (perpendicular, to the left of a->b)
+  const A = toScreen(a), B = toScreen(b);
+  const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L * off, ny = dx / L * off;
+  const a2 = [A[0] + nx, A[1] + ny], b2 = [B[0] + nx, B[1] + ny];
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+  const ux = nx / Math.abs(off || 1) * 4, uy = ny / Math.abs(off || 1) * 4;       // extension lines run 4 px past the dimension line
+  ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(a2[0] + ux, a2[1] + uy); ctx.moveTo(B[0], B[1]); ctx.lineTo(b2[0] + ux, b2[1] + uy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(a2[0], a2[1]); ctx.lineTo(b2[0], b2[1]); ctx.stroke();
+  for (const p of [a2, b2]) { ctx.beginPath(); ctx.arc(p[0], p[1], 3, 0, 6.3); ctx.fill(); }
+  ctx.save();
+  ctx.translate((a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2);
+  let ang = Math.atan2(dy, dx); if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
+  ctx.rotate(ang);
+  ctx.font = "600 15px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+  const w = ctx.measureText(label).width + 10;
+  ctx.fillStyle = getComputedStyle(document.body).backgroundColor; ctx.globalAlpha = 0.85; ctx.fillRect(-w / 2, -20, w, 20); ctx.globalAlpha = 1;
+  ctx.fillStyle = col; ctx.fillText(label, 0, -3);
+  ctx.restore();
+}
+function selBox(sc) {
+  let b = null;
+  for (let o = 0; o < sc.t.length; o += 7) if (S.sel.has(sc.t[o])) for (let k = 1; k <= 6; k += 2) {
+    const x = sc.t[o + k], y = sc.t[o + k + 1];
+    b = b ? [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)] : [x, y, x, y];
+  }
+  return b;
+}
+function draw() {
+  if (!W) return;
+  const sc = scene();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  const dim = S.sel.size > 0;
+  for (let c = 0, o = 0; c < sc.code.length; c++, o += 7) {
+    const part = sc.t[o], sel = S.sel.has(part), shade = sc.code[c] & 15;
+    const p = [toScreen([sc.t[o + 1], sc.t[o + 2]]), toScreen([sc.t[o + 3], sc.t[o + 4]]), toScreen([sc.t[o + 5], sc.t[o + 6]])];
+    ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(p[1][0], p[1][1]); ctx.lineTo(p[2][0], p[2][1]); ctx.closePath();
+    ctx.fillStyle = ctx.strokeStyle = colour(part, shade, sel); ctx.lineWidth = 0.6; ctx.globalAlpha = dim && !sel ? 0.45 : 1;
+    ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = dim && !sel ? 0.45 : 1; ctx.strokeStyle = "rgba(20,20,20,.85)"; ctx.lineWidth = sel ? 1.6 : 1;
+    for (let e = 0; e < 3; e++) if (sc.code[c] & (16 << e)) { const a = p[e], b = p[(e + 1) % 3]; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+  }
+  ctx.globalAlpha = 1;
+  const col = getComputedStyle(document.documentElement).getPropertyValue("--dim-col").trim() || "#0a6bd6";
+  if (S.dims) {
+    const b = sc.box;
+    drawDim([b[0], b[1]], [b[2], b[1]], 34, formatMm(b[2] - b[0]), col);
+    drawDim([b[2], b[1]], [b[2], b[3]], 34, formatMm(b[3] - b[1]), col);
+    const sb = selBox(sc);
+    if (sb) { const acc = "#e08a00"; drawDim([sb[0], sb[3]], [sb[2], sb[3]], -16, formatMm(sb[2] - sb[0]), acc); drawDim([sb[0], sb[1]], [sb[0], sb[3]], -16, formatMm(sb[3] - sb[1]), acc); }
+  }
+  if (S.pts.length) {
+    ctx.fillStyle = "#e0007a"; ctx.strokeStyle = "#e0007a"; ctx.lineWidth = 2;
+    const q = S.pts.map(toScreen);
+    for (const p of q) { ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, 6.3); ctx.fill(); }
+    if (q.length === 2) {
+      ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); ctx.lineTo(q[1][0], q[1][1]); ctx.stroke();
+      const d = dist(S.pts[0], S.pts[1]);
+      ctx.font = "700 17px system-ui"; ctx.textAlign = "center"; ctx.fillStyle = "#e0007a";
+      ctx.fillText(formatMm(d.d), (q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2 - 10);
+    }
+  }
+}
+function info() {
+  const el = $("info"), pose = D.poses[S.pose], f = (v) => formatMm(v);
+  const bx = scene().box;
+  if (S.measure && S.pts.length === 2) {
+    const d = dist(S.pts[0], S.pts[1]);
+    el.innerHTML = `<div class="sz">${f(d.d)} mm</div><div class="dm">across ${f(d.dx)} · up ${f(d.dy)} · tap again to start over</div>`;
+  } else if (S.measure) {
+    el.innerHTML = `<b>Measure</b><div class="dm">${S.view === "iso" ? "Switch to Front, Side or Top to measure true lengths." : S.pts.length ? "Now tap the second corner." : "Tap a corner, then another corner."}</div>`;
+  } else if (S.sel.size) {
+    const i = [...S.sel][0], p = D.parts[i], m = pose[i], names = [...S.sel].map((k) => D.parts[k].name);
+    const sz = [...m.size].sort((a, b) => b - a);
+    el.innerHTML = S.sel.size > 1 ? `<b>${names.length} parts</b><div class="dm">${names.join(", ")}</div>`
+      : `<b>${p.name}</b> <span class="dm">${p.material || ""} ${p.role || ""}</span><div class="sz">${f(sz[0])} × ${f(sz[1])} × ${f(sz[2])} mm</div><div class="dm">x ${f(m.size[0])} · y ${f(m.size[1])} · z ${f(m.size[2])} · at x ${m.min[0]} y ${m.min[1]} z ${m.min[2]}</div>`;
+  } else {
+    el.innerHTML = `<b>Tap a part</b> for its size, or <b>Measure</b> for distances between corners.<div class="dm">Pinch to zoom, drag to move, double-tap to fit.</div>`;
+  }
+  const all = pose.reduce((a, m) => [Math.min(a[0], m.min[0]), Math.min(a[1], m.min[1]), Math.min(a[2], m.min[2]), Math.max(a[3], m.min[0] + m.size[0]), Math.max(a[4], m.min[1] + m.size[1]), Math.max(a[5], m.min[2] + m.size[2])], [1e9, 1e9, 1e9, -1e9, -1e9, -1e9]);
+  $("overall").textContent = `${f(all[3] - all[0])} × ${f(all[4] - all[1])} × ${f(all[5] - all[2])} mm`;
+}
+function chips(host, items, cur, onpick, cls = "") {
+  host.innerHTML = "";
+  for (const [id, label] of items) {
+    const b = document.createElement("button");
+    b.className = "chip " + cls + (id === cur ? " on" : ""); b.textContent = label;
+    b.onclick = () => onpick(id);
+    host.appendChild(b);
+  }
+}
+function ui() {
+  chips($("poses"), Object.keys(D.scenes).map((p) => [p, p.replace(/_/g, " ")]), S.pose, (p) => { S.pose = p; reset(); });
+  chips($("views"), VIEWS, S.view, (v) => { S.view = v; if (v === "iso") S.measure = false; reset(); });
+  const tools = $("tools"); tools.innerHTML = "";
+  for (const [label, on, fn] of [["Dimensions", S.dims, () => (S.dims = !S.dims)], ["Measure", S.measure, () => { S.measure = !S.measure; S.pts = []; S.sel.clear(); if (S.measure && S.view === "iso") { S.view = "front"; reset(); } }],
+    ["Parts", false, () => panel("parts")], ["Joints", false, () => panel("joints")], ["Fit", false, () => { S.zoom = 1; S.px = S.py = 0; }]]) {
+    const b = document.createElement("button");
+    b.className = "chip acc" + (on ? " on" : ""); b.textContent = label;
+    b.onclick = () => { fn(); ui(); draw(); info(); };
+    tools.appendChild(b);
+  }
+}
+function reset() { S.zoom = 1; S.px = S.py = 0; S.pts = []; ui(); draw(); info(); }
+function panel(kind) {
+  const p = $("panel"), body = $("pbody");
+  let h = "";
+  if (kind === "parts") {
+    const rows = cutList(D.parts.map((q, i) => ({ ...q, size: D.poses[D.default in D.poses ? D.default : S.pose][i].size, idx: i })));
+    h = "<h2>Cut list (reference pose)</h2>" + rows.map((r, n) => `<div class="row" data-r="${n}"><span class="q">${r.qty}×</span><span class="n">${r.names.length > 3 ? r.names.slice(0, 3).join(", ") + "…" : r.names.join(", ")}<small>${r.material} ${r.role}</small></span><span class="s">${r.size.map(formatMm).join(" × ")}</span></div>`).join("");
+    body.innerHTML = h;
+    body.querySelectorAll(".row").forEach((el) => (el.onclick = () => { const r = rows[+el.dataset.r]; S.sel = new Set(r.names.map((nm) => D.parts.findIndex((q) => q.name === nm))); S.measure = false; p.style.display = "none"; ui(); draw(); info(); }));
+  } else {
+    h = "<h2>Joints and connections</h2>" + (D.constraints.map((c) => `<div class="row"><span class="n">${c.label}<small>${c.expr}</small></span></div>`).join("") || "<div class=dm>None listed.</div>");
+    if (D.params.length) h += "<h2>Parameters</h2>" + D.params.map((q) => `<div class="row"><span class="n">${q.name}<small>${q.desc}</small></span><span class="s">${formatMm(q.value)} ${q.unit}</span></div>`).join("");
+    body.innerHTML = h;
+  }
+  p.style.display = "block";
+}
+$("x").onclick = () => ($("panel").style.display = "none");
+
+// ---- gestures: one finger drags, two pinch, a tap picks or measures, a double tap fits
+const ptr = new Map();
+let down = null, last = 0, lastP = [0, 0];
+cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, [e.offsetX, e.offsetY]); down = { x: e.offsetX, y: e.offsetY, moved: false, n: ptr.size }; });
+cv.addEventListener("pointermove", (e) => {
+  if (!ptr.has(e.pointerId)) return;
+  const old = ptr.get(e.pointerId), now = [e.offsetX, e.offsetY];
+  if (ptr.size === 1) { S.px += now[0] - old[0]; S.py += now[1] - old[1]; if (down && Math.hypot(now[0] - down.x, now[1] - down.y) > 8) down.moved = true; }
+  else if (ptr.size === 2) {
+    const other = [...ptr.entries()].find(([id]) => id !== e.pointerId)[1];
+    const d0 = Math.hypot(old[0] - other[0], old[1] - other[1]), d1 = Math.hypot(now[0] - other[0], now[1] - other[1]);
+    if (d0 > 0) zoomAt([(now[0] + other[0]) / 2, (now[1] + other[1]) / 2], d1 / d0);
+    if (down) down.moved = true;
+  }
+  ptr.set(e.pointerId, now); draw();
+});
+function zoomAt(c, k) { const z = Math.min(40, Math.max(0.3, S.zoom * k)), r = z / S.zoom; S.px = c[0] - W / 2 - r * (c[0] - W / 2 - S.px); S.py = c[1] - H / 2 - r * (c[1] - H / 2 - S.py); S.zoom = z; }
+cv.addEventListener("pointerup", (e) => {
+  const was = down; ptr.delete(e.pointerId);
+  if (!was || was.moved || was.n > 1) { if (!ptr.size) down = null; return; }
+  down = null;
+  const now = Date.now(), p = [e.offsetX, e.offsetY];
+  if (!S.measure && now - last < 320 && Math.hypot(p[0] - lastP[0], p[1] - lastP[1]) < 30) { S.zoom = 1; S.px = S.py = 0; last = 0; draw(); return; }
+  last = now; lastP = p;
+  const sc = scene(), m = toModel(p);
+  if (S.measure) {
+    if (S.view === "iso") return;
+    const hit = nearest(sc.pts, m, 18 / pxPerMm());
+    if (hit) { if (S.pts.length >= 2) S.pts = []; S.pts.push(hit); }
+  } else {
+    const i = pickPart(sc.t.length ? Array.from(sc.t) : [], m);
+    S.sel = i >= 0 ? (S.sel.has(i) && S.sel.size === 1 ? new Set() : new Set([i])) : new Set();
+  }
+  draw(); info();
+});
+cv.addEventListener("pointercancel", (e) => { ptr.delete(e.pointerId); down = null; });
+cv.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt([e.offsetX, e.offsetY], e.deltaY < 0 ? 1.15 : 1 / 1.15); draw(); }, { passive: false });
+addEventListener("resize", resize);
+ui(); resize(); info();
+</script></body></html>
