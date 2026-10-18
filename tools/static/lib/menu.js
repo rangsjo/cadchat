@@ -41,11 +41,13 @@ export function buildMenus(s) {
     { id: "settings", label: "Settings…" },
   ];
   const view = [
-    { id: "view:iso", label: "Iso" }, { id: "view:top", label: "Top" }, { id: "view:front", label: "Front" }, { id: "view:side", label: "Side" }, { id: "view:fit", label: "Fit to window" },
+    { id: "view:iso", label: "Iso", shortcut: "1" }, { id: "view:top", label: "Top", shortcut: "2" }, { id: "view:front", label: "Front", shortcut: "3" }, { id: "view:side", label: "Side", shortcut: "4" }, { id: "view:fit", label: "Fit to window", shortcut: "F" },
     SEP,
-    ...(s.displayItems ?? []).map((d) => ({ id: `display:${d.key}`, label: d.label, checked: !!(s.display ?? {})[d.key] })),
+    ...(s.displayItems ?? []).map((d) => ({ id: `display:${d.key}`, label: d.label, checked: !!(s.display ?? {})[d.key], ...(d.key === "grid" ? { shortcut: "G" } : {}) })),
     SEP,
-    { id: "display:all", label: "Show all", shortcut: "H" }, { id: "display:clean", label: "Model only", shortcut: "H" },
+    { id: "display:all", label: "Show all overlays", shortcut: "H" }, { id: "display:clean", label: "Model only", shortcut: "H" },
+    SEP,
+    { id: "usage:open", label: "Token usage…" },
   ];
   const tools = [
     { id: "tool:measure", label: "Measure", shortcut: "M" }, { id: "tool:section", label: "Section", shortcut: "S" },
@@ -56,6 +58,7 @@ export function buildMenus(s) {
   const assistant = [
     { id: "assistant:start", label: "Start listening", disabled: !!(s.assistant ?? {}).listening },
     { id: "chat:open", label: "Open chat" },
+    { id: "chat:clear", label: "Clear chat…" },
     SEP,
     { id: "settings", label: "Agent settings…" },
   ];

@@ -29,6 +29,7 @@ import launcher
 import projects
 import settings
 import share
+import usage
 from cadwatch import read_jsonl, unanswered
 
 HERE = Path(__file__).resolve().parent
@@ -221,6 +222,24 @@ class App:
             f.write_text(old, encoding="utf-8") if old is not None else f.unlink()
             raise
 
+    def clear_chat(self):
+        """Move the conversation to .cad/chat-archive/<time>.jsonl and start empty; a running assistant is told through the inbox."""
+        with self.lock:
+            f = self.cad / "chat.jsonl"
+            msgs = read_jsonl(f)
+            if not msgs:
+                return {"ok": True, "archived": 0, "file": None}
+            arch = self.cad / "chat-archive"
+            arch.mkdir(exist_ok=True)
+            name = time.strftime("%Y%m%d-%H%M%S") + ".jsonl"
+            (arch / name).write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+            f.write_text("", encoding="utf-8")
+            (self.cad / "seen.jsonl").write_text("", encoding="utf-8")
+            with open(self.cad / "inbox.jsonl", "a", encoding="utf-8") as ib:
+                ib.write(json.dumps({"id": time.strftime("%H%M%S") + "-clear", "role": "system",
+                                     "text": "The user cleared the chat: all earlier messages are closed, no need to answer them or keep them in mind."}) + "\n")
+            return {"ok": True, "archived": len(msgs), "file": f".cad/chat-archive/{name}"}
+
     # ---- menu backend ---------------------------------------------------------------------------------------
     def projects_list(self):
         cur = str(self.root)
@@ -412,6 +431,9 @@ def make_handler(app):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 return self.wfile.write(body)
+            if p == "/api/usage":
+                dirs = [d.strip() for d in settings.load()["usage_dirs"].split(",") if d.strip()]
+                return self._json(usage.collect(app.root, dirs=dirs or None))
             if p == "/api/library":
                 return self._json(projects.library_list())
             if p == "/api/joints":
@@ -457,6 +479,8 @@ def make_handler(app):
                 vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
                 if p == "/api/check":
                     return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/chat/clear":
+                    return self._json(app.clear_chat())
                 if p == "/api/share/build":
                     mid = body.get("m")
                     files = share.build_site(app.root, app.root / "share", [mid] if mid else None)

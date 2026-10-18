@@ -2,6 +2,7 @@
 
 assistant_cmd   the agent started by "Start assistant" (default: claude), terminal: how to open a terminal for it ("" = first one found),
 projects_dir    where new projects are created, clearance: default glue gap for joints (mm), auto_open_chat: pop the chat open on a reply,
+usage_dirs      folders with Claude Code transcripts to read token usage from ("" = all of ~/.claude/projects that mention the project),
 export_dir      where exports are written ("" = the project's exports folder).
 Environment variables CADCHAT_ASSISTANT_CMD and CADCHAT_TERMINAL still override the file."""
 import json
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import projects
 
-DEFAULTS = {"assistant_cmd": "claude", "terminal": "", "projects_dir": "~/cad-projects", "clearance": 0.2, "auto_open_chat": True, "export_dir": ""}
+DEFAULTS = {"assistant_cmd": "claude", "terminal": "", "projects_dir": "~/cad-projects", "clearance": 0.2, "auto_open_chat": True, "export_dir": "", "usage_dirs": ""}
 
 
 def _file():

@@ -11,6 +11,8 @@ import { presence, stateLabel } from "./lib/assistant.js";
 import { DISPLAY_ITEMS, loadDisplay, saveDisplay, toggled, preset } from "./lib/display.js";
 import { mountMenubar, dialog, ask } from "./menubar.js";
 import { toAsciiStl } from "./lib/stl.js";
+import { gridSpec } from "./lib/grid.js";
+import { fmtTokens, lastDays, scale, badgeText, barSegments } from "./lib/usage.js";
 
 const $ = (id) => document.getElementById(id);
 // If the server was restarted with a new token (an old version without a persisted token), reload once to pick it up.
@@ -35,9 +37,23 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x444455, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 1.4);
 sun.position.set(2000, -3000, 4000);
 scene.add(sun);
-const grid = new THREE.GridHelper(6000, 60, 0x555a62, 0x3a3d43);
-grid.rotation.x = Math.PI / 2;
+// floor grid: sized to the model (lib/grid.js): fine cells with brighter lines every few cells and the axes through the origin
+let grid = new THREE.Group();
 scene.add(grid);
+function rebuildGrid() {
+  const b = meshes.length ? boxOf(meshes) : null, g = gridSpec(b ? { min: b.min.toArray(), max: b.max.toArray() } : null);
+  scene.remove(grid);
+  grid = new THREE.Group();
+  const fine = new THREE.GridHelper(g.size, Math.round(g.size / g.cell), 0x555a62, 0x34373d);
+  const coarse = new THREE.GridHelper(g.size, Math.round(g.size / g.major), 0x6a707a, 0x555a62);
+  for (const h of [fine, coarse]) { h.rotation.x = Math.PI / 2; h.material.transparent = true; grid.add(h); }
+  fine.material.opacity = 0.55; coarse.material.opacity = 0.9; coarse.position.z = 0.3;
+  grid.position.z = g.z - 0.5;
+  scene.add(grid);
+  $("gridNote").textContent = g.label + (g.z ? ` · floor at z ${Math.round(g.z)}` : "");
+  grid.visible = disp.grid && !layoutMode;
+  $("gridNote").style.display = grid.visible ? "" : "none";
+}
 scene.add(new THREE.AxesHelper(300));
 
 // ---------------------------------------------------------------- state
@@ -277,11 +293,7 @@ function fitBox(box, dir, k = 2.1) {
 const fit = () => fitBox(boxOf(visibleMeshes()));
 const fitSelection = () => fitBox(boxOf(selected.size ? [...selected] : visibleMeshes()));
 const look = (x, y, z) => fitBox(boxOf(selected.size && isolate ? [...selected] : visibleMeshes()), new THREE.Vector3(x, y, z));
-$("vIso").onclick = () => look(0.6, -0.6, 0.5);
-$("vTop").onclick = () => look(0, -0.001, 1);
-$("vFront").onclick = () => look(0, -1, 0.05);
-$("vSide").onclick = () => look(1, 0, 0.05);
-$("vFit").onclick = fitSelection;
+const VIEW_FN = { iso: () => look(0.6, -0.6, 0.5), top: () => look(0, -0.001, 1), front: () => look(0, -1, 0.05), side: () => look(1, 0, 0.05), fit: () => fitSelection() };
 
 // ---------------------------------------------------------------- selection
 function setSelection(list, point = null, normal = null) {
@@ -430,6 +442,7 @@ $("ask").onclick = () => openChat();
 function applyDisplay() {
   showAxes = disp.axes; showLinks = disp.links;
   grid.visible = disp.grid && !layoutMode;
+  $("gridNote").style.display = grid.visible ? "" : "none";
   planeGroup.visible = disp.planes && !layoutMode;
   overlay.visible = disp.dims;
   $("info").style.visibility = disp.info ? "" : "hidden";
@@ -460,6 +473,12 @@ addEventListener("keydown", (e) => {
   else if (k === "arrowleft") step(-1);
   else if (k === "arrowright") step(1);
   else if (k === "escape") $("tClear").click();
+  else if (k === "1") VIEW_FN.iso();
+  else if (k === "2") VIEW_FN.top();
+  else if (k === "3") VIEW_FN.front();
+  else if (k === "4") VIEW_FN.side();
+  else if (k === "f") VIEW_FN.fit();
+  else if (k === "g") setDisp(toggled(disp, "grid"));
   else if (k === "h") setDisp(Object.values(disp).some(Boolean) ? preset("clean") : preset("all"));
 });
 
@@ -1328,7 +1347,7 @@ async function loadModel(id, fresh) {
   const prev = { ...values };
   model.joints.forEach((j) => (values[j.name] = prev[j.name] ?? model.presets[model.default]?.[j.name] ?? 0));
   kinLabels.forEach((l) => l.el.remove()); kinLabels = [];
-  build(); buildPoseUI(); buildConsUI(); buildParamsUI();
+  build(); rebuildGrid(); buildPoseUI(); buildConsUI(); buildParamsUI();
   scheduleCheck();
   if (fresh) { if (layoutMode) fitLayout(); else look(0.6, -0.6, 0.5); }
 }
@@ -1355,6 +1374,7 @@ $("modelRebuild").onclick = async () => {
 };
 setInterval(poll, 1500);
 poll();
+rebuildGrid();
 applyDisplay();
 
 const tmp = new THREE.Vector3();
@@ -1454,11 +1474,13 @@ const ACTIONS = {
   "export:shot": () => renderer.domElement.toBlob((b) => b && download(`${curModel || "view"}.png`, b, "image/png")),
   "export:site": async () => { const r = await api("/api/share/build", { m: curModel }); dialog("Workshop site", r.ok ? `<p>${r.files.length} files written to <code>${r.path}</code>.</p><p>On the phone: run <code>./cadchat share --serve</code> and open the address it prints (same wifi), or publish the page as an artifact.</p>` : `<p>${r.error}</p>`); },
   settings: settingsDialog,
-  "view:iso": () => $("vIso").click(), "view:top": () => $("vTop").click(), "view:front": () => $("vFront").click(), "view:side": () => $("vSide").click(), "view:fit": () => $("vFit").click(),
+  "view:iso": VIEW_FN.iso, "view:top": VIEW_FN.top, "view:front": VIEW_FN.front, "view:side": VIEW_FN.side, "view:fit": VIEW_FN.fit,
+  "usage:open": () => usageDialog(),
   "display:all": () => setDisp(preset("all")), "display:clean": () => setDisp(preset("clean")),
   "tool:measure": () => $("tMeas").click(), "tool:section": () => $("tSec").click(), "tool:isolate": () => $("tIso").click(), "tool:check": () => scheduleCheck(),
   "joints:open": () => jointsDialog(),
   "assistant:start": () => $("astart").click(), "chat:open": () => openChat(),
+  "chat:clear": () => clearChatDialog(),
   "help:about": async () => { const v = await api("/api/version"); dialog("About cadchat", `<p>Code-CAD workbench: build123d models, a viewer with chat, measuring, sections, cut lists and a workshop site for the phone.</p><p>Project <b>${v.name}</b><br><code>${v.project}</code></p>`); },
 };
 async function runMenu(id) {
@@ -1472,3 +1494,45 @@ async function runMenu(id) {
 }
 mountMenubar($("menubar"), menuState, runMenu);
 addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); ACTIONS["version:save"](); } });
+
+// ---------------------------------------------------------------- token usage: small badge always, details in View > Token usage
+let usageData = null;
+function drawUsageMini() {
+  if (!usageData) return;
+  const days = lastDays(usageData.days, 7, new Date().toISOString().slice(0, 10)), h = scale(days.map((d) => d.output));
+  $("usageSpark").innerHTML = days.map((d, i) => `<rect class="${d.output ? "" : "z"}" x="${i * 6}" y="${16 - Math.max(1.5, h[i] * 16)}" width="4" height="${Math.max(1.5, h[i] * 16)}" rx="1"/>`).join("");
+  $("usageText").textContent = badgeText(usageData);
+  const t = usageData.total;
+  $("usageMini").title = `This project's assistant sessions (${usageData.sources}): written ${fmtTokens(t.output)}, new input ${fmtTokens(t.input + t.cache_creation)}, read from cache ${fmtTokens(t.cache_read)}, ${t.messages} replies. Click for details.`;
+}
+async function usagePoll() {
+  try { usageData = await api("/api/usage"); drawUsageMini(); } catch (e) { /* server restarting */ }
+}
+function usageDialog() {
+  const r = usageData; if (!r) return;
+  const days = lastDays(r.days, 14, new Date().toISOString().slice(0, 10));
+  const tot = (d) => d.output + d.input + d.cache_creation + d.cache_read, max = Math.max(1, ...days.map(tot)), H = 110, bw = 34;
+  const bars = days.map((d, i) => { let y = H; return barSegments(d, max, H).map((sg) => { y -= sg.h; return `<rect class="${sg.kind[0]}" x="${i * bw + 4}" y="${y}" width="${bw - 8}" height="${sg.h}"/>`; }).join("") + `<text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${d.date.slice(8)}</text>`; }).join("");
+  const week = days.slice(-7).reduce((a, d) => ({ output: a.output + d.output, new: a.new + d.input + d.cache_creation, cache: a.cache + d.cache_read }), { output: 0, new: 0, cache: 0 });
+  const card = (t, v, sub) => `<div><small>${t}</small><b>${v}</b><small>${sub}</small></div>`;
+  const row = (cells) => `<tr>${cells.map((c, i) => `<td${i ? ' style="text-align:right"' : ""}>${c}</td>`).join("")}</tr>`;
+  const html = `<div class="ucards">${card("Today written", fmtTokens(r.today.output), r.today.messages + " replies")}${card("7 days written", fmtTokens(week.output), fmtTokens(week.new) + " new input")}
+    ${card("All time written", fmtTokens(r.total.output), r.total.messages + " replies")}${card("From cache", Math.floor(r.cache_share * 100) + "%", fmtTokens(r.total.cache_read) + " read")}</div>
+    <svg class="uchart" width="${days.length * bw}" height="${H + 18}" viewBox="0 0 ${days.length * bw} ${H + 18}" style="max-width:100%">${bars}</svg>
+    <div style="color:var(--dim);font-size:11px;margin:2px 0 8px"><span style="color:var(--acc)">■</span> written &nbsp;<span style="color:#6cb2ff">■</span> new input &nbsp;<span style="color:#7a8194">■</span> cached input · last 14 days (UTC)</div>
+    <h4>Models</h4><table>${row(["model", "written", "new input", "cached"])}${Object.entries(r.models).map(([m, v]) => row([m, fmtTokens(v.output), fmtTokens(v.input + v.cache_creation), fmtTokens(v.cache_read)])).join("")}</table>
+    <h4>Sessions</h4><table>${row(["session", "last active", "replies", "written"])}${r.sessions.slice(0, 8).map((x) => row([x.id.slice(0, 8), (x.last || "").replace("T", " ").slice(0, 16), x.messages, fmtTokens(x.output)])).join("")}</table>
+    <p style="color:var(--dim);font-size:11px">Read from the Claude Code transcripts of sessions that mention this project (${r.sources} found). Folders can be set in Settings.</p>`;
+  dialog("Token usage", html);
+}
+$("usageMini").onclick = () => usageDialog();
+usagePoll(); setInterval(usagePoll, 30000);
+
+// ---------------------------------------------------------------- clear the chat (archived, so the conversation does not just grow)
+function clearChatDialog() {
+  dialog("Clear the chat", `<p>The conversation of this project is moved to <code>.cad/chat-archive/</code> and the chat starts empty. Nothing is deleted.</p>
+    <p style="color:var(--dim)">A running assistant is told that everything earlier is closed. Its own context only shrinks if you also start a fresh assistant session (Assistant ▸ Start listening).</p>`, [
+    { label: "Cancel" },
+    { label: "Clear chat", primary: true, onClick: async () => { const r = await api("/api/chat/clear", {}); say(r.ok ? (r.archived ? `Chat cleared (${r.archived} messages archived)` : "The chat was already empty") : "Could not clear: " + r.error); shown = -1; poll(); } }]);
+}
+$("cclear").onclick = (e) => { e.stopPropagation(); clearChatDialog(); };

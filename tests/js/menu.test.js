@@ -71,3 +71,14 @@ test("every actionable item has an id and a label; ids are unique", () => {
   const view = flatten(menu(buildMenus(base), "View").items);
   assert.equal(new Set(view.filter((i) => i.id).map((i) => i.id)).size, view.filter((i) => i.id).length);
 });
+
+test("View: grid has its shortcut and the detailed token usage is reachable", () => {
+  const ids = flatten(menu(buildMenus(base), "View").items);
+  assert.equal(ids.find((i) => i.id === "display:grid").shortcut, "G");
+  assert.ok(ids.some((i) => i.id === "usage:open"));
+  assert.equal(ids.filter((i) => i.id?.startsWith("view:")).length, 5);
+});
+
+test("the chat can be cleared from the Assistant menu", () => {
+  assert.ok(flatten(menu(buildMenus(base), "Assistant").items).some((i) => i.id === "chat:clear"));
+});

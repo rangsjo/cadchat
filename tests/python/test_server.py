@@ -448,3 +448,43 @@ def test_the_workshop_site_can_be_built_from_the_viewer(server, write_script):
     s, r = server.call("POST", "/api/share/build", {"m": "m"})
     assert r["ok"] and "m.html" in r["files"] and (server.root / "share" / "m.html").exists() and r["path"].endswith("share")
     assert server.call("POST", "/api/share/build", {}, token=None)[0] == 403
+
+
+def test_usage_endpoint_reads_the_configured_transcripts(server, tmp_path):
+    import json as _j, settings, time as _t
+    d = tmp_path / "tr"
+    d.mkdir()
+    (d / "s.jsonl").write_text(_j.dumps({"cwd": str(server.root.resolve())}) + "\n" + _j.dumps({"type": "assistant", "timestamp": _t.strftime("%Y-%m-%dT00:00:00Z", _t.gmtime()),
+        "message": {"id": "a", "model": "m", "usage": {"input_tokens": 1, "output_tokens": 2, "cache_read_input_tokens": 3, "cache_creation_input_tokens": 4}}}) + "\n", encoding="utf-8")
+    settings.save({"usage_dirs": str(d)})
+    s, r = server.call("GET", "/api/usage")
+    assert r["total"]["output"] == 2 and r["today"]["cache_read"] == 3 and r["sources"] == 1
+
+
+def test_clearing_the_chat_archives_it_and_starts_empty(server):
+    import json as _j
+    post_msg(server, "first question", "a")
+    post_msg(server, "second question", "b")
+    s, r = server.call("POST", "/api/chat/clear", {})
+    assert r["ok"] and r["archived"] == 2
+    assert server.call("GET", "/api/chat")[1] == []
+    files = list((server.root / ".cad" / "chat-archive").glob("*.jsonl"))
+    assert len(files) == 1 and "first question" in files[0].read_text(encoding="utf-8") and r["file"].endswith(files[0].name)
+    last = _j.loads((server.root / ".cad" / "inbox.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert last["role"] == "system" and "cleared" in last["text"]                          # a running assistant is told
+    assert server.call("POST", "/api/chat/clear", {})[1]["archived"] == 0                  # nothing to archive: no empty file
+    assert len(list((server.root / ".cad" / "chat-archive").glob("*.jsonl"))) == 1
+    assert server.call("POST", "/api/chat/clear", {}, token=None)[0] == 403
+
+
+def test_messages_after_a_clear_are_new_and_old_ones_are_not_replayed(server):
+    import io
+    from cadwatch import Watcher
+    post_msg(server, "old", "a")
+    server.call("POST", "/api/chat/clear", {})
+    post_msg(server, "new", "a")
+    out = []
+    w = Watcher(server.root, out=out.append)
+    w.start()
+    assert [__import__("json").loads(x)["text"] for x in out] == ["new"]                   # only the message sent after the clear
+    assert server.call("GET", "/api/chat")[1][0]["text"] == "new"
