@@ -32,3 +32,11 @@ test("presets: all shows everything, clean shows only the model", () => {
   assert.ok(Object.values(c).every((v) => v === false));
   assert.throws(() => preset("weird"));
 });
+
+test("measurements stay visible while measuring even when the dimension labels are switched off", async () => {
+  const { overlayVisible } = await import("../../tools/static/lib/display.js");
+  const off = toggled(defaultDisplay(), "dims");
+  assert.equal(overlayVisible(off, false), false);
+  assert.equal(overlayVisible(off, true), true);
+  assert.equal(overlayVisible(defaultDisplay(), false), true);
+});

@@ -8,7 +8,7 @@ import { decodeMesh } from "./lib/mesh.js";
 import { defaultPlanes as defaultPlanesFor, clipPlane, storageKey } from "./lib/planes.js";
 import { chooseModel, publishedSince } from "./lib/models.js";
 import { presence, stateLabel } from "./lib/assistant.js";
-import { DISPLAY_ITEMS, loadDisplay, saveDisplay, toggled, preset } from "./lib/display.js";
+import { DISPLAY_ITEMS, loadDisplay, saveDisplay, toggled, preset, overlayVisible } from "./lib/display.js";
 import { mountMenubar, dialog, ask } from "./menubar.js";
 import { toAsciiStl } from "./lib/stl.js";
 import { gridSpec } from "./lib/grid.js";
@@ -345,7 +345,7 @@ function drawDims() {
       addLabel(fmt(s.z), new THREE.Vector3(max.x, max.y, (min.z + max.z) / 2));
     }
   }
-  const r = Math.max(4, camera.position.distanceTo(controls.target) * 0.006);
+  const r = Math.max(6, camera.position.distanceTo(controls.target) * 0.008);
   mPts.forEach((p) => {
     const s = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7ad0ff, depthTest: false }));
     s.position.copy(p); s.renderOrder = 10; overlay.add(s);
@@ -396,10 +396,10 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
   const hit = pick(e);
   if (measureMode) {
-    if (!hit) return;
+    if (!hit) { $("infotxt").textContent = "Measure: that click missed the model, click on a part."; return; }
     if (mPts.length >= 2) mPts = [];
     mPts.push(snap(hit)); drawDims();
-    if (mPts.length === 2) $("infotxt").textContent = `Distance ${fmt(mPts[0].distanceTo(mPts[1]))} mm`;
+    $("infotxt").textContent = mPts.length === 2 ? `Distance ${fmt(mPts[0].distanceTo(mPts[1]))} mm` : "Measure: now click the second point.";
     return;
   }
   if (layoutMode) {
@@ -424,7 +424,12 @@ renderer.domElement.addEventListener("pointermove", (e) => {
 });
 
 // ---------------------------------------------------------------- tools
-function setMeasure(on) { measureMode = on; if (!on) mPts = []; renderer.domElement.style.cursor = on ? "crosshair" : ""; restyle(); drawDims(); }
+function setMeasure(on) {
+  measureMode = on; if (!on) mPts = [];
+  renderer.domElement.style.cursor = on ? "crosshair" : "";
+  restyle(); drawDims(); applyDisplay();
+  if (on) $("infotxt").textContent = "Measure: click a corner or point on the model, then a second one (clicks snap to corners). Esc or M ends.";
+}
 $("tIso").onclick = () => { isolate = !isolate; restyle(); fitSelection(); };
 $("tDim").onclick = () => { showDims = !showDims; restyle(); drawDims(); };
 $("tMeas").onclick = () => setMeasure(!measureMode);
@@ -444,7 +449,7 @@ function applyDisplay() {
   grid.visible = disp.grid && !layoutMode;
   $("gridNote").style.display = grid.visible ? "" : "none";
   planeGroup.visible = disp.planes && !layoutMode;
-  overlay.visible = disp.dims;
+  overlay.visible = overlayVisible(disp, measureMode);                      // a measurement is always shown while measuring
   $("info").style.visibility = disp.info ? "" : "hidden";
   $("apill").style.display = disp.badge ? "" : "none";
   $("sAxes")?.classList.toggle("on", disp.axes); $("sLinks")?.classList.toggle("on", disp.links);
@@ -1398,7 +1403,7 @@ function place(l) {
   if (inspectMode) { ictl.update(); renderInspect(); return; }
   controls.update();
   renderer.render(scene, camera);
-  labels.forEach((l) => { const h = l.hidden; if (!disp.dims) l.hidden = true; place(l); l.hidden = h; });
+  labels.forEach((l) => { const h = l.hidden; if (!overlayVisible(disp, measureMode)) l.hidden = true; place(l); l.hidden = h; });
   kinLabels.forEach(place);
   layoutLabels.forEach(place);
   planeLbl.forEach((l) => { l.hidden = layoutMode || !disp.planes; place(l); });

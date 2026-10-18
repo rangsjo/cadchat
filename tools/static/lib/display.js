@@ -33,3 +33,6 @@ export function preset(name) {
   if (name === "clean") return Object.fromEntries(DISPLAY_ITEMS.map((i) => [i.key, false]));
   throw new Error(`unknown preset: ${name}`);
 }
+
+/** The dimension/measurement overlay is drawn when dimension labels are on, and always while a measurement is being made. */
+export const overlayVisible = (state, measuring) => state.dims || measuring;
