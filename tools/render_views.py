@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-COL = {"top": (214, 160, 98), "pillar": (150, 98, 62), "leg": (126, 78, 52), "beam": (170, 112, 72), "hardware": (230, 200, 60)}
+COL = {"top": (214, 160, 98), "pillar": (150, 98, 62), "board": (200, 150, 95), "leg": (126, 78, 52), "beam": (170, 112, 72), "hardware": (230, 200, 60)}
 VIEWS = {"Iso": (-35, 25), "Front": (0, 0), "Side": (90, 0), "Top": (0, 90)}     # (azimuth, elevation) in degrees
 
 
@@ -68,8 +68,10 @@ def main(script, outdir="exports/views"):
     ns = runpy.run_path(script, run_name="render")
     roles = {p["name"]: p.get("role", "") for p in ns["parts"]}
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    for preset, vals in ns["presets"].items():
-        pp = [(n, s, roles[n]) for n, s in ns["posed"](vals)]
+    presets = ns.get("presets") or {"default": {}}
+    posed = ns.get("posed") or (lambda vals: [(p["name"], p["shape"]) for p in ns["parts"]])            # a static model has no joints
+    for preset, vals in presets.items():
+        pp = [(n, s, roles[n]) for n, s in posed(vals)]
         tris = tris_of(pp)
         allv = np.array([t[i] for t in tris for i in range(3)])
         box = (allv.min(axis=0), allv.max(axis=0))

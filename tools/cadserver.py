@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import history
+import launcher
 from cadwatch import read_jsonl, unanswered
 
 HERE = Path(__file__).resolve().parent
@@ -355,6 +356,8 @@ def make_handler(app):
                 vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
                 if p == "/api/check":
                     return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/assistant/start":
+                    return self._json({"ok": True, "state": launcher.start_assistant(app.root)})
                 if p == "/api/restore":
                     app.restore(body.get("m"), str(body.get("id", "")))
                     return self._json({"ok": True})

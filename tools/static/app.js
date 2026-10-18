@@ -1174,11 +1174,21 @@ async function assistantPoll() {
   $("atext").textContent = p.text;
   $("ptext").textContent = lastAssistant.listening ? "Assistant listening" : lastAssistant.last_seen == null ? "Assistant not connected" : "Assistant away";
   $("apill").style.color = lastAssistant.listening ? "var(--fg)" : "";
+  $("astart").style.display = lastAssistant.listening ? "none" : "";
   const h = $("ahint");
   h.style.display = p.detail ? "block" : "none";
   h.textContent = p.detail;
 }
 $("apill").onclick = () => openChat();
+$("astart").onclick = async () => {
+  const b = $("astart");
+  b.textContent = "Starting…";
+  try {
+    const r = await (await fetch("/api/assistant/start", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: "{}" })).json();
+    b.textContent = r.ok ? (r.state === "started" ? "Opened a terminal…" : "Already starting…") : "Failed";
+  } catch (e) { b.textContent = "Failed"; }
+  setTimeout(() => { b.textContent = "Start assistant"; }, 15000);
+};
 setInterval(assistantPoll, 2000);
 assistantPoll();
 let connOk = true;

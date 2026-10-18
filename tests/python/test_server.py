@@ -343,3 +343,12 @@ def test_history_lists_snapshots_and_restore_rebuilds_the_old_state(server, writ
     model = server.call("GET", "/api/model?m=m")[1]
     assert model["params"][0]["value"] == 10                                  # the first snapshot had the default width
     assert server.call("POST", "/api/restore", {"m": "m", "id": "nope"})[0] in (200, 404)
+
+
+def test_assistant_can_be_started_from_the_viewer(server, tmp_path, monkeypatch):
+    import launcher
+    seen = []
+    monkeypatch.setattr(launcher, "start_assistant", lambda root, **k: seen.append(str(root)) or "started")
+    s, r = server.call("POST", "/api/assistant/start", {})
+    assert s == 200 and r == {"ok": True, "state": "started"} and seen == [str(server.root.resolve())]
+    assert server.call("POST", "/api/assistant/start", {}, token=None)[0] == 403

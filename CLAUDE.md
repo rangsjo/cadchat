@@ -6,6 +6,7 @@ Units are mm, z is up.
 
 ## Commands
 - Projects: a project is a folder with `cadproject.json`, `parts/`, `exports/`, `.cad/`. Commands act on the project around the cwd, else `--project DIR`, else the last used one (`./cadchat projects`; `init DIR` creates one; `library` / `add NAME` copy reusable models in).
+- Joints: `tools/joints.py` (`dowel_butt`, `dado`, `rabbet`, `half_lap`, `mortise_tenon`, `defaults(kind, t)`), demo in `library/parts/joinery_demo.py`. Launcher: `./cadchat install-launcher`, `./cadchat app`, `./cadchat assistant`.
 - Setup: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`
 - Viewer: `./cadchat start` / `restart` / `stop` / `status` (http://127.0.0.1:8765; `serve` runs it in the foreground), new model: `./cadchat new part NAME` or `./cadchat new mechanism NAME`
 - Import from Creo or any CAD: `./cadchat import FILE.step`, `./cadchat watch FOLDER` (see `docs/CREO.md`)

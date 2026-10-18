@@ -54,6 +54,17 @@ The model switcher lists every model of the project, the chat shows the conversa
 Chat replies only flow while an assistant session runs `tools/cadwatch.py`; the badge shows "Assistant away" when none does, and
 your messages wait (state "queued") until one starts.
 
+### As an app (Ubuntu)
+
+```bash
+./cadchat install-launcher      # adds "CAD chat" to the app menu (remove with --uninstall)
+```
+
+The icon starts the viewer for your last used project and opens it in the browser. Right-click it for **Start assistant listening**, which opens a terminal with
+Claude Code in this folder and a prompt that makes it follow the `cad-viewer` skill (start the viewer, arm the message watch, answer the popup messages).
+The same is one click in the viewer: the chat shows a **Start assistant** button whenever nobody is listening. `CADCHAT_ASSISTANT_CMD` (default `claude`)
+and `CADCHAT_TERMINAL` (default: the first terminal found) change what is started and where; `./cadchat app` and `./cadchat assistant` do the same from a shell.
+
 Create your own models:
 
 ```bash
@@ -67,6 +78,13 @@ Create your own models:
 
 A model script is plain Python: parameters at the top, geometry with build123d, then `publish_kinematic(...)`.
 See `templates/`, `library/parts/` (a shaft with a keyway, an L-bracket) and `examples/parts/` (a folding drop-leaf table).
+
+## Woodworking joints
+
+`tools/joints.py` cuts two boards to fit: `dowel_butt`, `dado`, `rabbet`, `half_lap` and `mortise_tenon`. Put the boards in their final position, overlapping by the
+depth of the joint, and each function returns both boards cut (plus loose dowels), the parameters used and a note for the cut list; `joint.as_constraint(...)` shows
+it in the viewer's constraint list. `joints.defaults(kind, thickness)` gives the usual proportions (tenon one third of the thickness and 1.5 x as long, dado a
+third deep, half lap half, dowel a third). `library/parts/joinery_demo.py` is a bookcase and a frame using all of them (`./cadchat add joinery_demo`).
 
 ## Tests
 

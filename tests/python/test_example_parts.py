@@ -46,3 +46,17 @@ def test_bracket_hole_count_matters(project):
     holed = build(project, "bracket", {"hole_d": 6})["parts"][0]["volume"]
     # six holes of 5 mm depth: 6 * pi * (3^2 - 0.25^2) * 5 = 843 mm3
     assert abs((solid - holed) - 843) < 15
+
+
+def test_joinery_demo_builds_with_every_joint_cut_to_fit(project):
+    import runpy
+    m = build(project, "joinery_demo")
+    names = {p["name"] for p in m["parts"]}
+    assert {"side_L", "shelf", "back", "stile_1", "rail_mid", "muntin"} <= names and any(n.startswith("side_L_bottom_dowel") for n in names)
+    assert len(m["constraints"]) == 15
+    kinds = " ".join(c["expr"] for c in m["constraints"]).lower()
+    for word in ("dowel", "dado", "rabbet", "mortise", "half lap"):
+        assert word in kinds
+    os.environ["CADCHAT_ROOT"] = str(project)
+    ns = runpy.run_path(str(REPO / "library" / "parts" / "joinery_demo.py"), run_name="x")
+    assert ns["overlaps"]() == []

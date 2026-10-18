@@ -4,6 +4,9 @@
   ./cadchat projects               known projects, most recently used first
   ./cadchat --project DIR CMD ...  run any command on a project (default: the project around the cwd, else the last used one)
   ./cadchat library                reusable models;  ./cadchat add NAME [--as NEW]  copies one into the project
+  ./cadchat app                    start the viewer and open it in the browser (what the launcher icon does)
+  ./cadchat assistant [--terminal] start Claude Code listening to the viewer's chat (in a new terminal window with --terminal)
+  ./cadchat install-launcher       add the "CAD chat" icon to the Ubuntu app menu (--uninstall removes it)
   ./cadchat new part NAME          create parts/NAME.py from templates/part.py
   ./cadchat new mechanism NAME     create parts/NAME.py from templates/mechanism.py (joints, presets, collision check)
   ./cadchat run NAME               run parts/NAME.py (builds and publishes the model)
@@ -28,6 +31,7 @@ import sys
 import time
 from pathlib import Path
 
+import launcher
 import projects
 
 HERE = Path(__file__).resolve().parent
@@ -197,6 +201,12 @@ def main(argv=None, root=None):
     ini.add_argument("--name")
     sub.add_parser("projects")
     sub.add_parser("library")
+    ap_ = sub.add_parser("app")
+    ap_.add_argument("--no-browser", action="store_true")
+    as_ = sub.add_parser("assistant")
+    as_.add_argument("--terminal", action="store_true")
+    il = sub.add_parser("install-launcher")
+    il.add_argument("--uninstall", action="store_true")
     ad = sub.add_parser("add")
     ad.add_argument("name")
     ad.add_argument("--as", dest="as_name")
@@ -233,10 +243,25 @@ def main(argv=None, root=None):
             for n in projects.library_list():
                 print(n)
             return 0
+        if a.cmd == "install-launcher":
+            if a.uninstall:
+                print("launcher removed" if launcher.uninstall() else "no launcher was installed")
+            else:
+                print(f"installed {launcher.install()}: find 'CAD chat' in the app menu (right-click it for 'Start assistant listening')")
+            return 0
         root = Path(root) if root else projects.resolve_project(a.project)
         if a.cmd in ("start", "restart", "serve", "run", "new", "add"):
             projects.touch(root) if projects.is_project(root) else None
-        if a.cmd == "add":
+        if a.cmd == "app":
+            info = start_server(root)
+            print(f"viewer {'started' if info['started'] else 'already running'}: {info['url']}  (project {projects.project_name(root)})")
+            if not a.no_browser:
+                import webbrowser
+                webbrowser.open(info["url"])
+        elif a.cmd == "assistant":
+            argv = launcher.assistant_argv(root)
+            return subprocess.call(launcher.terminal_argv(argv) if a.terminal else argv, cwd=launcher.APP)
+        elif a.cmd == "add":
             print(f"added {projects.add_from_library(a.name, root, a.as_name)}")
         elif a.cmd == "new":
             print(f"created {create(a.kind, a.name, root)}")
