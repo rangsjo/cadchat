@@ -90,12 +90,13 @@ def frame_parts():
     xs = bx0 + (leg - stretcher_t) / 2
     turn = Axis((bx0, -y_h, 0), (0, 0, 1))
     out += [("gate_in_leg", box(bx0, bx0 + leg, yb - leg, yb, 0, uz).rotate(turn, 45)),
-            ("gate_in_stretcher", box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45))]
+            ("gate_in_stretcher", box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45)),
+            ("gate_in_brace", box(xs, xs + stretcher_t, -y_h, yb - leg, zb - stretcher_h / 2, zb + stretcher_h / 2).rotate(turn, 45))]
     return out
 
 
 brace_z = uz - beam_h - 5 - stretcher_h / 2
-hinge_zs = {"out": {"low": low_z, "top": brace_z}, "in": {"low": low_z}}
+hinge_zs = {"out": {"low": low_z, "top": brace_z}, "in": {"low": low_z, "top": brace_z}}
 
 
 def hinge_parts():
@@ -217,7 +218,7 @@ for sfx in "RL":
         constraints += [
             dict(id=n(f"gate_{g_}"), kind="revolute", label=f"{g_.capitalize()}er fold-out leg hinge ({sfx}): vertical axis at a fixed leg",
                  a=n("post_front" if g_ == "out" else "post_back"), b=n(f"gate_{g_}_leg"), joint=n(f"gate_{g_}"),
-                 parts=[n("post_front" if g_ == "out" else "post_back"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")] + ([n("gate_out_brace")] if g_ == "out" else []), params=["leg", "gate_len", "post"],
+                 parts=[n("post_front" if g_ == "out" else "post_back"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")] + [n(f"gate_{g_}_brace")], params=["leg", "gate_len", "post"],
                  expr=f"swings {what}; open it stands {fmt(gate_len * 0.707)} mm out at 45 deg and carries the sheet, folded it lies flat in the pocket of the beams"),
         ]
 for sfx in "RL":
