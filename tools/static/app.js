@@ -8,6 +8,7 @@ import { decodeMesh } from "./lib/mesh.js";
 import { defaultPlanes as defaultPlanesFor, clipPlane, storageKey } from "./lib/planes.js";
 import { chooseModel, publishedSince } from "./lib/models.js";
 import { presence, stateLabel } from "./lib/assistant.js";
+import { DISPLAY_ITEMS, loadDisplay, saveDisplay, toggled, preset } from "./lib/display.js";
 
 const $ = (id) => document.getElementById(id);
 // If the server was restarted with a new token (an old version without a persisted token), reload once to pick it up.
@@ -49,6 +50,7 @@ const selected = new Set();
 let selPoint = null, selNormal = null;
 let isolate = false, showDims = false, measureMode = false, autoOpenChat = true;
 let colorMode = "role", showAxes = true, showLinks = true, activeCon = null;
+let disp = loadDisplay((() => { try { return localStorage.getItem("cad.display"); } catch (e) { return null; } })());
 let collisions = [], activeTab = "pose";
 let inspectMode = false, inspG = null;
 let layoutMode = false, layoutMeshes = [], layoutGroups = [], layoutLabels = [], layoutObj = null;
@@ -251,7 +253,7 @@ function updateKin() {
     l.pos.copy(l.origin).applyMatrix4(mat);
     l.el.style.opacity = showAxes ? 1 : 0;
     l.el.textContent = `${l.joint.label}: ${Math.round(values[l.joint.name] ?? 0)}${unitOf(l.joint.name)}`;
-    l.hidden = !showAxes || (activeTab !== "cons" && !activeCon) || (activeCon && activeCon.joint && activeCon.joint !== l.joint.name);
+    l.hidden = !showAxes || !disp.jointLabels || (activeTab !== "cons" && !activeCon) || (activeCon && activeCon.joint && activeCon.joint !== l.joint.name);
   });
 }
 
@@ -422,6 +424,29 @@ function step(dir) {
 $("prev").onclick = () => step(-1);
 $("next").onclick = () => step(1);
 $("ask").onclick = () => openChat();
+// ---------------------------------------------------------------- display toggles (the eye button, key H)
+function applyDisplay() {
+  showAxes = disp.axes; showLinks = disp.links;
+  grid.visible = disp.grid && !layoutMode;
+  planeGroup.visible = disp.planes && !layoutMode;
+  overlay.visible = disp.dims;
+  $("info").style.visibility = disp.info ? "" : "hidden";
+  $("apill").style.display = disp.badge ? "" : "none";
+  $("sAxes")?.classList.toggle("on", disp.axes); $("sLinks")?.classList.toggle("on", disp.links);
+  DISPLAY_ITEMS.forEach((i) => { const c = $("d-" + i.key); if (c) c.checked = disp[i.key]; });
+  try { localStorage.setItem("cad.display", saveDisplay(disp)); } catch (e) { /* private mode */ }
+  if (model) updateKin();
+}
+function setDisp(next) { disp = next; applyDisplay(); }
+DISPLAY_ITEMS.forEach((i) => {
+  const l = document.createElement("label");
+  l.innerHTML = `<input type="checkbox" id="d-${i.key}"> ${i.label}`;
+  l.querySelector("input").onchange = () => setDisp(toggled(disp, i.key));
+  $("dispItems").appendChild(l);
+});
+$("dispBtn").onclick = () => { const m = $("dispMenu"); m.style.display = m.style.display === "none" ? "block" : "none"; };
+$("dispAll").onclick = () => setDisp(preset("all"));
+$("dispClean").onclick = () => setDisp(preset("clean"));
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") { if (e.key === "Escape") e.target.blur(); return; }
   const k = e.key.toLowerCase();
@@ -433,6 +458,7 @@ addEventListener("keydown", (e) => {
   else if (k === "arrowleft") step(-1);
   else if (k === "arrowright") step(1);
   else if (k === "escape") $("tClear").click();
+  else if (k === "h") setDisp(Object.values(disp).some(Boolean) ? preset("clean") : preset("all"));
 });
 
 // ---------------------------------------------------------------- tabs
@@ -533,8 +559,8 @@ function buildConsUI() {
     });
   });
   const lk = (id, flag) => { $(id).onclick = () => { flag(); $(id).classList.toggle("on"); updateKin(); }; };
-  lk("sAxes", () => (showAxes = !showAxes));
-  lk("sLinks", () => (showLinks = !showLinks));
+  lk("sAxes", () => setDisp(toggled(disp, "axes")));
+  lk("sLinks", () => setDisp(toggled(disp, "links")));
 }
 
 // ---------------------------------------------------------------- parameters panel
@@ -640,8 +666,8 @@ function buildLayout() {
 }
 function setLayoutVisibility() {
   layoutObj.visible = layoutMode; layoutGrid.visible = layoutMode;
-  group.visible = !layoutMode; kinOverlay.visible = !layoutMode; planeGroup.visible = !layoutMode; capAll.visible = !layoutMode;
-  grid.visible = !layoutMode;
+  group.visible = !layoutMode; kinOverlay.visible = !layoutMode; planeGroup.visible = !layoutMode && disp.planes; capAll.visible = !layoutMode;
+  grid.visible = !layoutMode && disp.grid;
   layoutLabels.forEach((l) => (l.hidden = !layoutMode));
   labels.forEach((l) => l.el.style.display = "none");
 }
@@ -798,7 +824,7 @@ function applySection() {
     corner.setComponent(u, c.getComponent(u) - w / 2); corner.setComponent(v, c.getComponent(v) + h / 2);
     planeLbl.push({ el: mkLabel(`${p.name} (${AXN[p.axis]} = ${Math.round(p.pos)})`, "g"), pos: corner, hidden: false });
   });
-  planeGroup.visible = !layoutMode;
+  planeGroup.visible = !layoutMode && disp.planes;
   $("tSec").classList.toggle("on", $("secBox").style.display === "block");
   renderPlaneUI();
   rebuildCaps();
@@ -1327,6 +1353,7 @@ $("modelRebuild").onclick = async () => {
 };
 setInterval(poll, 1500);
 poll();
+applyDisplay();
 
 const tmp = new THREE.Vector3();
 const tb = new THREE.Vector3();
@@ -1349,8 +1376,8 @@ function place(l) {
   if (inspectMode) { ictl.update(); renderInspect(); return; }
   controls.update();
   renderer.render(scene, camera);
-  labels.forEach(place);
+  labels.forEach((l) => { const h = l.hidden; if (!disp.dims) l.hidden = true; place(l); l.hidden = h; });
   kinLabels.forEach(place);
   layoutLabels.forEach(place);
-  planeLbl.forEach((l) => { l.hidden = layoutMode; place(l); });
+  planeLbl.forEach((l) => { l.hidden = layoutMode || !disp.planes; place(l); });
 })();
