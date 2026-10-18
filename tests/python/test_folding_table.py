@@ -232,3 +232,23 @@ def test_beams_are_tenoned_into_the_fixed_legs(ns):
     assert beam.max.Y > post.min.Y + 20 and beam.min.Y < -post.min.Y - 20                                # the tenons enter the legs
     b = parts["post_front_R"].bounding_box()
     assert parts["post_front_R"].volume < b.size.X * b.size.Y * b.size.Z - 2 * 15 * 40 * 17             # two mortises in each leg
+
+
+def test_outer_leg_has_a_top_brace_under_the_top_beam(ns):
+    names = {p["name"] for p in ns["parts"]}
+    assert {f"gate_out_brace_{s}" for s in SIDES} <= names
+    brace, low, beam = bb(ns, {}, "gate_out_brace_R"), bb(ns, {}, "gate_out_stretcher_R"), bb(ns, {}, "beam_top_R")
+    assert low.max.Z < brace.min.Z and brace.max.Z <= beam.min.Z                                         # high up, below the top beam
+    assert posed(ns, ns["presets"]["closed"])["gate_out_brace_R"].bounding_box().min.Z == pytest.approx(brace.min.Z)    # lies flat when folded
+
+
+def test_fold_out_legs_hang_on_brass_hinges_with_leaves_on_the_leg_and_the_pillar(ns):
+    parts = {p["name"]: p for p in ns["parts"]}
+    for s in SIDES:
+        for pos in ("low", "top"):
+            assert {f"hinge_gate_out_{pos}_{k}_{s}" for k in ("barrel", "post", "leaf")} <= parts.keys()
+        assert f"hinge_gate_in_low_leaf_{s}" in parts and parts[f"hinge_gate_out_top_leaf_{s}"]["joint"] == f"gate_out_{s}"
+        assert parts[f"hinge_gate_out_top_post_{s}"]["joint"] == f"slide_{s}"
+    barrel = bb(ns, {}, "hinge_gate_out_low_barrel_R")
+    j = joints(ns)["gate_out_R"]["origin"]
+    assert (barrel.min.X + barrel.max.X) / 2 == pytest.approx(j[0] + 0, abs=0.01) and (barrel.min.Y + barrel.max.Y) / 2 == pytest.approx(j[1], abs=0.01)   # on the hinge axis

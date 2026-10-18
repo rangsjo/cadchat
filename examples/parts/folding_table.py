@@ -83,12 +83,32 @@ def frame_parts():
     turn = Axis((bx1, y_h, 0), (0, 0, 1))
     out += [("gate_out_leg", box(bx1 - leg, bx1, ya, ya + leg, 0, uz).rotate(turn, 45)),
             ("gate_out_stretcher", box(xs, xs + stretcher_t, ya + leg, y_h, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45))]
+    zb = uz - beam_h - 5 - stretcher_h / 2                                   # brace under the top beam: stiffens the outer leg against racking
+    out.append(("gate_out_brace", box(xs, xs + stretcher_t, ya + leg, y_h, zb - stretcher_h / 2, zb + stretcher_h / 2).rotate(turn, 45)))
     # inner leg: hinge corner (bx0, -y_h), flat along +y
     yb = -y_h + gate_len
     xs = bx0 + (leg - stretcher_t) / 2
     turn = Axis((bx0, -y_h, 0), (0, 0, 1))
     out += [("gate_in_leg", box(bx0, bx0 + leg, yb - leg, yb, 0, uz).rotate(turn, 45)),
             ("gate_in_stretcher", box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2).rotate(turn, 45))]
+    return out
+
+
+brace_z = uz - beam_h - 5 - stretcher_h / 2
+hinge_zs = {"out": {"low": low_z, "top": brace_z}, "in": {"low": low_z}}
+
+
+def hinge_parts():
+    """Surface-mounted brass hinges (barrel on the vertical axis, a leaf on the pillar's outer face and one on the stretcher or brace) at the
+    heights of the stretchers. Simplified: barrel and two flat leaves."""
+    hh, lw, lt = stretcher_h - 4, 34.0, 1.6
+    out = []
+    for g_, cx, cy, sx, sy in (("out", bx1, y_h, 1, 1), ("in", bx0, -y_h, -1, -1)):        # sx: outward x, sy: towards the fixed leg
+        for pos, z in hinge_zs[g_].items():
+            tag = f"hinge_gate_{g_}_{pos}"
+            out += [(f"{tag}_barrel", Pos(cx, cy, z) * Cylinder(hinge_r, hh), "slide"),
+                    (f"{tag}_post", box(*sorted((cx, cx + sx * lt)), *sorted((cy, cy + sy * lw)), z - hh / 2, z + hh / 2), "slide"),
+                    (f"{tag}_leaf", box(*sorted((cx - sx * 2, cx - sx * (2 - lt))), *sorted((cy, cy - sy * lw)), z - hh / 2, z + hh / 2), f"gate_{g_}")]
     return out
 
 
@@ -136,6 +156,7 @@ for name, shape in post_raw.items():
     R.append((f"post_{name}", shift(shape), "slide"))
 for n, sh in frame_parts():
     R.append((n, shift(sh), n.rsplit("_", 1)[0]))
+R += [(n, shift(sh), jt) for n, sh, jt in hinge_parts()]
 
 
 def meta_of(name):
@@ -196,7 +217,7 @@ for sfx in "RL":
         constraints += [
             dict(id=n(f"gate_{g_}"), kind="revolute", label=f"{g_.capitalize()}er fold-out leg hinge ({sfx}): vertical axis at a fixed leg",
                  a=n("post_front" if g_ == "out" else "post_back"), b=n(f"gate_{g_}_leg"), joint=n(f"gate_{g_}"),
-                 parts=[n("post_front" if g_ == "out" else "post_back"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")], params=["leg", "gate_len", "post"],
+                 parts=[n("post_front" if g_ == "out" else "post_back"), n(f"gate_{g_}_leg"), n(f"gate_{g_}_stretcher")] + ([n("gate_out_brace")] if g_ == "out" else []), params=["leg", "gate_len", "post"],
                  expr=f"swings {what}; open it stands {fmt(gate_len * 0.707)} mm out at 45 deg and carries the sheet, folded it lies flat in the pocket of the beams"),
         ]
 for sfx in "RL":
