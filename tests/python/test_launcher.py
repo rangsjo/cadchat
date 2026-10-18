@@ -77,3 +77,77 @@ def test_cli_install_launcher_uses_the_data_home(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "data" / "applications" / "cadchat.desktop").exists()
     assert cadchat.main(["install-launcher", "--uninstall"]) == 0
     assert not (tmp_path / "data" / "applications" / "cadchat.desktop").exists()
+
+
+# ---- clearing the chat resets the assistant session ---------------------------------------------------------------------------
+@pytest.fixture
+def fake_agent(tmp_path, monkeypatch):
+    agent = tmp_path / "agent.sh"
+    agent.write_text("#!/bin/sh\nsleep 60\n", encoding="utf-8")
+    agent.chmod(0o755)
+    monkeypatch.setenv("CADCHAT_ASSISTANT_CMD", str(agent))
+    monkeypatch.delenv("CADCHAT_TERMINAL", raising=False)
+    monkeypatch.setattr(launcher.shutil, "which", lambda n: None)              # no terminal: the agent runs directly
+    yield agent
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return open(f"/proc/{pid}/stat").read().split()[2] != "Z"
+    except (OSError, IndexError):
+        return False
+
+
+def wait_for(cond, tries=60):
+    for _ in range(tries):
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_a_started_assistant_records_its_pid_and_can_be_stopped(project, fake_agent):
+    assert launcher.start_assistant(project, min_gap=0) == "started"
+    pidfile = project / ".cad" / "assistant.pid"
+    assert wait_for(pidfile.exists)
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    assert alive(pid)
+    assert launcher.stop_assistant(project) == "stopped"
+    assert wait_for(lambda: not alive(pid)) and not pidfile.exists()
+    assert launcher.stop_assistant(project) == "not running"
+
+
+def test_a_stale_pid_file_is_not_trusted(project, fake_agent):
+    (project / ".cad").mkdir(exist_ok=True)
+    (project / ".cad" / "assistant.pid").write_text(str(os.getpid()), encoding="utf-8")        # a live process that is not the assistant (this test)
+    assert launcher.stop_assistant(project) == "not running"
+    assert alive(os.getpid())
+
+
+def test_restart_gives_a_fresh_session_only_when_one_was_started_by_the_viewer(project, fake_agent):
+    assert launcher.restart_assistant(project) == "none"
+    launcher.start_assistant(project, min_gap=0)
+    pidfile = project / ".cad" / "assistant.pid"
+    assert wait_for(pidfile.exists)
+    old = int(pidfile.read_text(encoding="utf-8"))
+    assert launcher.restart_assistant(project) == "restarted"
+    assert wait_for(lambda: not alive(old))
+    assert wait_for(lambda: pidfile.exists() and int(pidfile.read_text(encoding="utf-8")) != old)
+    launcher.stop_assistant(project)
+
+
+def test_stopping_also_ends_the_message_watch_the_assistant_left_behind(project, fake_agent):
+    import json
+    import subprocess
+    watcher = subprocess.Popen(["sh", "-c", "sleep 60", "cadwatch"])                      # cmdline mentions cadwatch
+    try:
+        launcher.start_assistant(project, min_gap=0)
+        assert wait_for((project / ".cad" / "assistant.pid").exists)
+        (project / ".cad" / "assistant.json").write_text(json.dumps({"beat": time.time(), "pid": watcher.pid, "listening": True}), encoding="utf-8")
+        assert launcher.stop_assistant(project) == "stopped"
+        assert wait_for(lambda: watcher.poll() is not None)
+    finally:
+        if watcher.poll() is None:
+            watcher.kill()
+        watcher.wait()

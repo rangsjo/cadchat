@@ -223,22 +223,27 @@ class App:
             raise
 
     def clear_chat(self):
-        """Move the conversation to .cad/chat-archive/<time>.jsonl and start empty; a running assistant is told through the inbox."""
+        """Archive the conversation (.cad/chat-archive/<time>.jsonl), start empty and reset the assistant session: one the viewer started is
+        replaced by a fresh one with an empty context (so old screenshots and errors are not carried and paid for again); one started by
+        hand is told through the inbox that everything earlier is closed."""
         with self.lock:
             f = self.cad / "chat.jsonl"
             msgs = read_jsonl(f)
-            if not msgs:
-                return {"ok": True, "archived": 0, "file": None}
-            arch = self.cad / "chat-archive"
-            arch.mkdir(exist_ok=True)
-            name = time.strftime("%Y%m%d-%H%M%S") + ".jsonl"
-            (arch / name).write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
-            f.write_text("", encoding="utf-8")
-            (self.cad / "seen.jsonl").write_text("", encoding="utf-8")
+            name = None
+            if msgs:
+                arch = self.cad / "chat-archive"
+                arch.mkdir(exist_ok=True)
+                name = time.strftime("%Y%m%d-%H%M%S") + ".jsonl"
+                (arch / name).write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+                f.write_text("", encoding="utf-8")
+                (self.cad / "seen.jsonl").write_text("", encoding="utf-8")
+        assistant = launcher.restart_assistant(self.root)
+        if msgs and assistant == "none":
             with open(self.cad / "inbox.jsonl", "a", encoding="utf-8") as ib:
                 ib.write(json.dumps({"id": time.strftime("%H%M%S") + "-clear", "role": "system",
-                                     "text": "The user cleared the chat: all earlier messages are closed, no need to answer them or keep them in mind."}) + "\n")
-            return {"ok": True, "archived": len(msgs), "file": f".cad/chat-archive/{name}"}
+                                     "text": "The user cleared the chat: all earlier messages are closed, no need to answer them or keep them in mind. "
+                                             "If you can, end this session and let the user start a fresh one: its context still holds the old messages and screenshots."}) + "\n")
+        return {"ok": True, "archived": len(msgs), "file": f".cad/chat-archive/{name}" if name else None, "assistant": assistant}
 
     # ---- menu backend ---------------------------------------------------------------------------------------
     def projects_list(self):

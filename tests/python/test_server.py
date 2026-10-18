@@ -488,3 +488,12 @@ def test_messages_after_a_clear_are_new_and_old_ones_are_not_replayed(server):
     w.start()
     assert [__import__("json").loads(x)["text"] for x in out] == ["new"]                   # only the message sent after the clear
     assert server.call("GET", "/api/chat")[1][0]["text"] == "new"
+
+
+def test_clearing_the_chat_also_resets_the_assistant_session(server, monkeypatch):
+    import launcher
+    calls = []
+    monkeypatch.setattr(launcher, "restart_assistant", lambda root: calls.append(str(root)) or "restarted")
+    post_msg(server, "a screenshot of an old error", "a")
+    s, r = server.call("POST", "/api/chat/clear", {})
+    assert r["ok"] and r["assistant"] == "restarted" and calls == [str(server.root.resolve())]

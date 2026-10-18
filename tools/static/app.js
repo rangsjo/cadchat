@@ -1535,9 +1535,15 @@ usagePoll(); setInterval(usagePoll, 30000);
 
 // ---------------------------------------------------------------- clear the chat (archived, so the conversation does not just grow)
 function clearChatDialog() {
-  dialog("Clear the chat", `<p>The conversation of this project is moved to <code>.cad/chat-archive/</code> and the chat starts empty. Nothing is deleted.</p>
-    <p style="color:var(--dim)">A running assistant is told that everything earlier is closed. Its own context only shrinks if you also start a fresh assistant session (Assistant ▸ Start listening).</p>`, [
+  dialog("Clear the chat and the assistant session", `<p>The conversation of this project is moved to <code>.cad/chat-archive/</code> (nothing is deleted) and the chat starts empty.</p>
+    <p>An assistant that was started from here (button, menu or launcher icon) is closed and a fresh one is opened with an empty context, so old screenshots and errors are not sent again.</p>
+    <p style="color:var(--dim)">An assistant you started by hand cannot be reset from here: it is told that everything earlier is closed, and you can end that session yourself.</p>`, [
     { label: "Cancel" },
-    { label: "Clear chat", primary: true, onClick: async () => { const r = await api("/api/chat/clear", {}); say(r.ok ? (r.archived ? `Chat cleared (${r.archived} messages archived)` : "The chat was already empty") : "Could not clear: " + r.error); shown = -1; poll(); } }]);
+    { label: "Clear and restart assistant", primary: true, onClick: async () => {
+      const r = await api("/api/chat/clear", {});
+      const a = { restarted: " · a fresh assistant session was opened", none: " · no assistant started from here (a manual one only got a note)" }[r.assistant] ?? "";
+      say(r.ok ? (r.archived ? `Chat cleared (${r.archived} messages archived)` : "The chat was already empty") + a : "Could not clear: " + r.error);
+      shown = -1; poll();
+    } }]);
 }
 $("cclear").onclick = (e) => { e.stopPropagation(); clearChatDialog(); };

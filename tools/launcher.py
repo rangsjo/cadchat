@@ -9,6 +9,7 @@ x-terminal-emulator, gnome-terminal, konsole, xterm) change what is started and 
 import json
 import os
 import shlex
+import signal
 import shutil
 import subprocess
 import time
@@ -77,6 +78,60 @@ def terminal_argv(cmd):
     return list(cmd)
 
 
+WRAP = 'echo $$ > "$0"; exec "$@"'          # the agent replaces the shell, so the recorded pid is the agent's own
+
+
+def pidfile(project):
+    return Path(project) / ".cad" / "assistant.pid"
+
+
+def _is_assistant(pid):
+    """True if the process is an assistant started by us (its command line carries our start prompt); never trust a bare pid file."""
+    try:
+        return "cadchat session" in Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return False
+
+
+def _stop_watch(project):
+    """The message watch (tools/cadwatch.py) the assistant started may outlive it and keep reporting 'listening': end it too."""
+    try:
+        pid = int(json.loads((Path(project) / ".cad" / "assistant.json").read_text(encoding="utf-8")).get("pid"))
+        if "cadwatch" in Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace"):
+            os.kill(pid, signal.SIGTERM)
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def stop_assistant(project, wait=3.0):
+    """End the assistant session the viewer started ("stopped"); "not running" if there is none, or the pid file is stale."""
+    f = pidfile(project)
+    try:
+        pid = int(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "not running"
+    if not _is_assistant(pid):
+        f.unlink(missing_ok=True)
+        return "not running"
+    os.kill(pid, signal.SIGTERM)
+    _stop_watch(project)
+    end = time.time() + wait
+    while time.time() < end and _is_assistant(pid):
+        time.sleep(0.05)
+    if _is_assistant(pid):
+        os.kill(pid, signal.SIGKILL)
+    f.unlink(missing_ok=True)
+    return "stopped"
+
+
+def restart_assistant(project):
+    """A fresh session with an empty context in place of the one the viewer started ("restarted"); "none" if it started none."""
+    if stop_assistant(project) != "stopped":
+        return "none"
+    start_assistant(project, min_gap=0)
+    return "restarted"
+
+
 def start_assistant(project, min_gap=20):
     """Open the assistant in a terminal. Returns "started", or "already starting" if it was started less than min_gap seconds ago."""
     stamp = Path(project) / ".cad" / "assistant_start.json"
@@ -89,5 +144,6 @@ def start_assistant(project, min_gap=20):
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.write_text(json.dumps({"at": now}), encoding="utf-8")
     kw = {"start_new_session": True} if os.name != "nt" else {}
-    subprocess.Popen(terminal_argv(assistant_argv(project)), cwd=APP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+    pidfile(project).unlink(missing_ok=True)
+    subprocess.Popen(terminal_argv(["sh", "-c", WRAP, str(pidfile(project)), *assistant_argv(project)]), cwd=APP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
     return "started"
