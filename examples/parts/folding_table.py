@@ -59,7 +59,8 @@ slide_max = sheet_w - t           # the base slides this far from fully open to 
 X = slide_max                     # open x = closed x + X for everything that rides on the base
 bx0 = x_de + g + 2                # pillar block (fixed legs, beams, folded fold-out legs) under the base top
 bx1 = bx0 + post
-y_h = depth / 2 - gate_inset - post          # hinge corner of the fold-out legs = inner face of the fixed leg
+y_h = depth / 2 - gate_inset - post          # hinge end of the fold-out legs = inner face of the fixed leg
+pivot_out, pivot_in = bx1 - 5, bx0 + 5      # hidden pivots, 3 mm in from the outer face of the stretcher (so the end of the stretcher swings clear of the pillar)
 pin_z = height                    # the C-D hinge pin sits on the top surface
 filler_w = 2 * x_de - g           # fills the gap between the folded base tops
 
@@ -80,7 +81,7 @@ def frame_parts():
     # outer leg: hinge corner (bx1, +y_h), flat along -y
     ya = y_h - gate_len
     xs = bx1 - leg + (leg - stretcher_t) / 2
-    turn = Axis((bx1, y_h, 0), (0, 0, 1))
+    turn = Axis((pivot_out, y_h, 0), (0, 0, 1))
     out += [("gate_out_leg", box(bx1 - leg, bx1, ya, ya + leg, 0, uz).rotate(turn, 45)),
             ("gate_out_stretcher", recess(box(xs, xs + stretcher_t, ya + leg, y_h, low_z - stretcher_h / 2, low_z + stretcher_h / 2), "out", hinge_zs["out"].values(), 1).rotate(turn, 45))]
     zb = uz - beam_h - 5 - stretcher_h / 2                                   # brace under the top beam: stiffens the outer leg against racking
@@ -88,7 +89,7 @@ def frame_parts():
     # inner leg: hinge corner (bx0, -y_h), flat along +y
     yb = -y_h + gate_len
     xs = bx0 + (leg - stretcher_t) / 2
-    turn = Axis((bx0, -y_h, 0), (0, 0, 1))
+    turn = Axis((pivot_in, -y_h, 0), (0, 0, 1))
     out += [("gate_in_leg", box(bx0, bx0 + leg, yb - leg, yb, 0, uz).rotate(turn, 45)),
             ("gate_in_stretcher", recess(box(xs, xs + stretcher_t, -y_h, yb - leg, low_z - stretcher_h / 2, low_z + stretcher_h / 2), "in", hinge_zs["in"].values(), 1).rotate(turn, 45)),
             ("gate_in_brace", recess(box(xs, xs + stretcher_t, -y_h, yb - leg, zb - stretcher_h / 2, zb + stretcher_h / 2), "in", hinge_zs["in"].values(), 1).rotate(turn, 45))]
@@ -97,30 +98,36 @@ def frame_parts():
 
 brace_z = uz - beam_h - 5 - stretcher_h / 2
 hinge_zs = {"out": {"low": low_z, "top": brace_z}, "in": {"low": low_z, "top": brace_z}}
-hinge_r_leg, leaf_w, leaf_t, leaf_h = 2.5, 34.0, 1.2, stretcher_h - 4
-HINGE_AT = {"out": (bx1, y_h, 1, 1), "in": (bx0, -y_h, -1, -1)}      # axis x, y; sx: outward in x; sy: towards the fixed leg in y
+hinge_r_leg, leaf_h = 2.0, stretcher_h - 4
+HINGE_AT = {"out": (pivot_out, y_h, 1), "in": (pivot_in, -y_h, -1)}      # pivot x, y; sy: towards the fixed leg in y
+plate_t, plate_l = 2.0, 26.0
 
 
 def leaf_boxes(g_, z):
-    """Slim hinge: both leaves are let into the wood, flush with the outer face of the fixed leg (post) and of the stretcher / brace (2 mm further in),
-    and only a thin pin shows in the corner. Returns the leaf on the post and the leaf on the stretcher, with the leg in its folded (flat) position."""
-    cx, cy, sx, sy = HINGE_AT[g_]
-    return (box(*sorted((cx, cx - sx * leaf_t)), *sorted((cy, cy + sy * leaf_w)), z - leaf_h / 2, z + leaf_h / 2),
-            box(*sorted((cx - sx * 2, cx - sx * (2 + leaf_t))), *sorted((cy, cy - sy * leaf_w)), z - leaf_h / 2, z + leaf_h / 2))
+    """Hidden knife-type hinge: a steel plate in a saw kerf in the end of the fixed leg and one in the end of the stretcher or brace, both in the
+    middle plane of the leg, joined by a pin on the pivot axis. Nothing shows from outside but the seam. Returns the plate in the fixed leg and
+    the one in the stretcher, with the leg in its folded (flat) position."""
+    cx, cy, sy = HINGE_AT[g_]
+    zz = (z - leaf_h / 2, z + leaf_h / 2)
+    return (box(cx - plate_t / 2, cx + plate_t / 2, *sorted((cy, cy + sy * plate_l)), *zz),
+            box(cx - plate_t / 2, cx + plate_t / 2, *sorted((cy, cy - sy * plate_l)), *zz))
 
 
 def recess(shape, g_, zs, which):
-    """`shape` with the hinge leaves let in at heights `zs`; which = 0 for the fixed leg, 1 for the stretcher or brace."""
+    """`shape` with the hinge kerfs cut at heights `zs`; which = 0 for the fixed leg, 1 for the stretcher or brace."""
+    cx, cy, sy = HINGE_AT[g_]
     for z in zs:
         shape = shape - leaf_boxes(g_, z)[which]
+        if which == 0:                                       # relief where the outer corner of the stretcher end swings into the leg
+            shape = shape - Pos(cx, cy, z) * Cylinder(math.hypot(3, 3) + 0.4, stretcher_h)
     return shape
 
 
 def hinge_parts():
-    """Brass hinges at the heights of the stretchers: a thin pin on the vertical axis and a leaf let into the fixed leg and one into the stretcher
-    or brace. The leaf on the leg turns with it (built in the open position like the leg itself)."""
+    """Steel hinge plates (hidden in kerfs) and the pivot pin at the heights of the stretchers. The plate in the leg turns with it (built in the
+    open position like the leg itself)."""
     out = []
-    for g_, (cx, cy, sx, sy) in HINGE_AT.items():
+    for g_, (cx, cy, sy) in HINGE_AT.items():
         turn = Axis((cx, cy, 0), (0, 0, 1))
         for pos, z in hinge_zs[g_].items():
             tag = f"hinge_gate_{g_}_{pos}"
@@ -140,8 +147,8 @@ x_de_o, x_ef_o = x_de + X, x_ef + X
 J, R = {}, []
 J["fold"] = dict(label="Centre sheet fold (top hinge 90°)", group="Sheets", parent="slide", origin=(x_de_o, 0, uz), axis=(0, -1, 0), min=0, max=90)
 J["outer"] = dict(label="Outer sheet fold (underside hinge)", group="Sheets", parent="slide", origin=(x_ef_o, 0, uz), axis=(0, 1, 0), min=0, max=90)
-J["gate_out"] = dict(label="Outer fold-out leg hinge (towards the outer sheet)", group="Legs", parent="slide", origin=(bx1 + X, y_h, 0), axis=(0, 0, -1), min=0, max=45)
-J["gate_in"] = dict(label="Inner fold-out leg hinge (towards the centre)", group="Legs", parent="slide", origin=(bx0 + X, -y_h, 0), axis=(0, 0, -1), min=0, max=45)
+J["gate_out"] = dict(label="Outer fold-out leg hinge (towards the outer sheet)", group="Legs", parent="slide", origin=(pivot_out + X, y_h, 0), axis=(0, 0, -1), min=0, max=45)
+J["gate_in"] = dict(label="Inner fold-out leg hinge (towards the centre)", group="Legs", parent="slide", origin=(pivot_in + X, -y_h, 0), axis=(0, 0, -1), min=0, max=45)
 # the slide is coupled to the fold angle: the pins of the two centre sheets must stay together at x = +-gap/2 (four-bar closure)
 _table = [[a, round(sheet_w * (1 - math.cos(math.radians(a))) - t * math.sin(math.radians(a)), 4)] for a in [i * 2.5 for i in range(37)]]
 J["slide"] = dict(label="Base slide (coupled to the fold)", group="Sheets", type="prismatic", parent=None, origin=(0, 0, 0), axis=(-1, 0, 0),

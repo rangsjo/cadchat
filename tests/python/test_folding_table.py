@@ -283,3 +283,16 @@ def test_base_tops_are_only_a_little_wider_than_the_pillar_block(ns):
     assert top.min.X <= post.min.X and post.max.X <= top.max.X                                          # still carries the pillar
     assert 4 <= top.max.X - post.max.X <= 8 and top.size.X <= post.size.X + 12                          # a small margin, no more
     assert 2780 <= size(ns, ns["presets"]["open"])[0] <= 2820                                           # open length kept (longer outer sheets)
+
+
+@pytest.mark.parametrize("g", GATES)
+def test_hinges_are_fully_hidden_inside_the_wood(ns, g):
+    closed = ns["presets"]["closed"]
+    post = bb(ns, closed, "post_front_R" if g == "out" else "post_back_R")
+    for pos in ("low", "top"):
+        for k in ("barrel", "post", "leaf"):
+            b = bb(ns, closed, f"hinge_gate_{g}_{pos}_{k}_R")
+            assert post.min.X + 0.9 <= b.min.X and b.max.X <= post.max.X - 0.9, (g, pos, k)               # nothing outside the faces of the fixed leg
+    st = bb(ns, closed, f"gate_{g}_stretcher_R")
+    pin = bb(ns, closed, f"hinge_gate_{g}_low_barrel_R")
+    assert st.min.X < (pin.min.X + pin.max.X) / 2 < st.max.X                                             # the pivot lies in the thickness of the leg
