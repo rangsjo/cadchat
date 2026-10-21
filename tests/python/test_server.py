@@ -497,3 +497,25 @@ def test_clearing_the_chat_also_resets_the_assistant_session(server, monkeypatch
     post_msg(server, "a screenshot of an old error", "a")
     s, r = server.call("POST", "/api/chat/clear", {})
     assert r["ok"] and r["assistant"] == "restarted" and calls == [str(server.root.resolve())]
+
+
+def test_providers_endpoint_lists_the_agents_and_the_current_choice(server):
+    s, r = server.call("GET", "/api/providers")
+    assert [p["id"] for p in r["providers"]][:4] == ["claude", "copilot", "codex", "gemini"]
+    assert r["current"] == {"provider": "claude", "assistant_mode": "session", "setup_done": False}
+    assert r["providers"][0]["login"] and r["providers"][1]["install"]
+
+
+def test_a_provider_can_be_tested_and_the_choice_saved(server, monkeypatch):
+    import providers
+    def fake_detect(pid, timeout=8.0):
+        providers.get(pid)                                              # unknown ids raise KeyError like the real one
+        return {"installed": pid == "claude", "path": "/x/" + pid, "version": "1.0"}
+    monkeypatch.setattr(providers, "detect", fake_detect)
+    s, r = server.call("POST", "/api/providers/test", {"id": "claude"})
+    assert r["ok"] and r["installed"] is True and r["version"] == "1.0"
+    assert server.call("POST", "/api/providers/test", {"id": "copilot"})[1]["installed"] is False
+    assert not server.call("POST", "/api/providers/test", {"id": "nope"})[1]["ok"]
+    assert server.call("POST", "/api/providers/test", {"id": "claude"}, token=None)[0] == 403
+    s, r = server.call("POST", "/api/settings", {"provider": "copilot", "assistant_mode": "message", "setup_done": True})
+    assert r["ok"] and server.call("GET", "/api/providers")[1]["current"] == {"provider": "copilot", "assistant_mode": "message", "setup_done": True}

@@ -63,7 +63,7 @@ export function buildMenus(s) {
     { id: "settings", label: "Agent settings…" },
   ];
   const help = [
-    { id: "help:start", label: "Quick start" }, { id: "help:keys", label: "Keyboard shortcuts" }, { id: "help:resume", label: "Coming back after a break" },
+    { id: "help:tour", label: "What can cadchat do?" }, { id: "help:wizard", label: "Set up the AI assistant…" }, { id: "help:start", label: "Quick start" }, { id: "help:keys", label: "Keyboard shortcuts" }, { id: "help:resume", label: "Coming back after a break" },
     SEP,
     { id: "help:about", label: "About cadchat" },
   ];

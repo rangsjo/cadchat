@@ -5,6 +5,7 @@
   ./cadchat --project DIR CMD ...  run any command on a project (default: the project around the cwd, else the last used one)
   ./cadchat library                reusable models;  ./cadchat add NAME [--as NEW]  copies one into the project
   ./cadchat share [--out DIR] [--serve]  static workshop site (views, dimensions, tap-to-measure, cut list) for a phone: no PNGs, no server needed
+  ./cadchat bridge [--provider P] [--command C]  answer every chat message by running an AI agent once (claude -p, copilot -p, codex exec, gemini -p)
   ./cadchat app                    start the viewer and open it in the browser (what the launcher icon does)
   ./cadchat assistant [--terminal] start Claude Code listening to the viewer's chat (in a new terminal window with --terminal)
   ./cadchat install-launcher       add the "CAD chat" icon to the Ubuntu app menu (--uninstall removes it)
@@ -208,6 +209,10 @@ def main(argv=None, root=None):
     sh.add_argument("--fragment", action="store_true", help="also write <model>.fragment.html without doctype/head, for publishing as an artifact")
     sh.add_argument("--serve", action="store_true", help="also serve the folder on the local network (read only) and print the address for the phone")
     sh.add_argument("--port", type=int, default=8780)
+    br = sub.add_parser("bridge")
+    br.add_argument("--provider")
+    br.add_argument("--command")
+    br.add_argument("--timeout", type=float, default=900)
     ap_ = sub.add_parser("app")
     ap_.add_argument("--no-browser", action="store_true")
     as_ = sub.add_parser("assistant")
@@ -259,7 +264,15 @@ def main(argv=None, root=None):
         root = Path(root) if root else projects.resolve_project(a.project)
         if a.cmd in ("start", "restart", "serve", "run", "new", "add"):
             projects.touch(root) if projects.is_project(root) else None
-        if a.cmd == "share":
+        if a.cmd == "bridge":
+            import bridge
+            b = bridge.Bridge(root, provider=a.provider, command=a.command, timeout=a.timeout, quiet=False)
+            print(f"bridge for {projects.project_name(root)}: every chat message runs {b.provider} once (Ctrl-C stops)", flush=True)
+            try:
+                b.run()
+            except KeyboardInterrupt:
+                pass
+        elif a.cmd == "share":
             import share
             out = Path(a.out) if a.out else root / "share"
             files = share.build_site(root, out, a.model)

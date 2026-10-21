@@ -12,6 +12,7 @@ import { DISPLAY_ITEMS, loadDisplay, saveDisplay, toggled, preset, overlayVisibl
 import { mountMenubar, dialog, ask } from "./menubar.js";
 import { toAsciiStl } from "./lib/stl.js";
 import { gridSpec } from "./lib/grid.js";
+import { TOUR, recommendProvider, recommendedMode, needsWizard, summary, canContinue } from "./lib/wizard.js";
 import { fmtTokens, lastDays, scale, badgeText, barSegments } from "./lib/usage.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1454,18 +1455,21 @@ function exportStl() {
   download(`${model.name || curModel}_pose.stl`, toBinaryStl(parts), "model/stl");
 }
 function settingsDialog() {
-  api("/api/settings").then((c) => {
+  Promise.all([api("/api/settings"), api("/api/providers")]).then(([c, pr]) => {
     const f = (k, label, type = "text", hint = "") => `<label>${label}${hint ? ` <small style="color:var(--dim)">${hint}</small>` : ""}<input type="${type}" data-k="${k}" ${type === "checkbox" ? (c[k] ? "checked" : "") : `value="${String(c[k]).replace(/"/g, "&quot;")}"`}></label>`;
-    dialog("Settings", [f("assistant_cmd", "Assistant (agent) command", "text", "e.g. claude, or another agent started in a terminal"), f("terminal", "Terminal command", "text", "empty = first terminal found, e.g. gnome-terminal --"),
-      f("projects_dir", "Folder for new projects"), f("clearance", "Default glue gap for joints (mm)", "number"), f("auto_open_chat", "Open the chat when I select a part or the assistant answers", "checkbox"), `<p style="color:var(--dim)">Saved for all projects in ~/.config/cadchat/settings.json.</p>`].join(""), [
+    const sel = (k, label, opts) => `<label>${label}<select data-k="${k}">${opts.map(([v, t]) => `<option value="${v}"${c[k] === v ? " selected" : ""}>${t}</option>`).join("")}</select></label>`;
+    dialog("Settings", [sel("provider", "AI assistant", pr.providers.map((p) => [p.id, p.name])), sel("assistant_mode", "How it answers", [["message", "Once per message (cheapest, any agent)"], ["session", "Live session (keeps its context)"]]),
+      f("assistant_cmd", "Command of your own agent", "text", "only for 'Another agent'; {prompt} is replaced by the message"), `<p><span class="btn" id="openWizard">Setup wizard…</span></p>`,
+      f("terminal", "Terminal command", "text", "empty = first terminal found, e.g. gnome-terminal --"), f("projects_dir", "Folder for new projects"), f("clearance", "Default glue gap for joints (mm)", "number"),
+      f("auto_open_chat", "Open the chat when I select a part or the assistant answers", "checkbox"), `<p style="color:var(--dim)">Saved for all projects in ~/.config/cadchat/settings.json.</p>`].join(""), [
       { label: "Cancel" },
       { label: "Save", primary: true, onClick: async (c2) => {
         const body = {};
-        c2.querySelectorAll("input[data-k]").forEach((i) => { body[i.dataset.k] = i.type === "checkbox" ? i.checked : i.type === "number" ? +i.value : i.value; });
+        c2.querySelectorAll("[data-k]").forEach((i) => { body[i.dataset.k] = i.type === "checkbox" ? i.checked : i.type === "number" ? +i.value : i.value; });
         const r = await api("/api/settings", body);
         if (!r.ok) { c2.querySelector("p:last-child").textContent = r.error; c2.querySelector("p:last-child").style.color = "#ffb0a8"; return false; }
         autoOpenChat = !!r.settings.auto_open_chat; say("Settings saved");
-      } }]);
+      } }]).content.querySelector("#openWizard").onclick = () => { document.querySelectorAll(".modal").forEach((m) => m.remove()); wizard(); };
   });
 }
 async function jointsDialog(focus) {
@@ -1503,6 +1507,7 @@ const ACTIONS = {
   "joints:open": () => jointsDialog(),
   "assistant:start": () => $("astart").click(), "chat:open": () => openChat(),
   "chat:clear": () => clearChatDialog(),
+  "help:tour": () => tourDialog(), "help:wizard": () => wizard(),
   "help:about": async () => { const v = await api("/api/version"); dialog("About cadchat", `<p>Code-CAD workbench: build123d models, a viewer with chat, measuring, sections, cut lists and a workshop site for the phone.</p><p>Project <b>${v.name}</b><br><code>${v.project}</code></p>`); },
 };
 async function runMenu(id) {
@@ -1564,3 +1569,67 @@ function clearChatDialog() {
     } }]);
 }
 $("cclear").onclick = (e) => { e.stopPropagation(); clearChatDialog(); };
+
+// ---------------------------------------------------------------- first-start wizard: tour + connect an AI agent
+function tourHtml() { return TOUR.map((t, i) => `<p><b>${i + 1}. ${t.title}</b><br><span style="color:var(--dim)">${t.text}</span></p>`).join(""); }
+function tourDialog() { dialog("What can cadchat do?", tourHtml()); }
+async function wizard() {
+  const pr = await api("/api/providers");
+  const st = { step: 0, provider: pr.current.provider, mode: pr.current.assistant_mode, command: "", det: {} };
+  const get = (id) => pr.providers.find((p) => p.id === id);
+  const d = dialog("Set up cadchat", "<div id='wz'></div>", []);
+  const box = d.content.querySelector("#wz");
+  pr.providers.filter((p) => p.id !== "custom").forEach((p) => api("/api/providers/test", { id: p.id }).then((r) => { st.det[p.id] = r; if (st.step === 1 || st.step === 2) render(); }));
+  const nav = (back, next, nextLabel = "Next") => `<div class="mbtns"><span class="btn" id="wz-skip" style="float:left">Skip for now</span>${back ? '<span class="btn" id="wz-back">Back</span>' : ""}<span class="btn on" id="wz-next">${nextLabel}</span></div>`;
+  const badge = (id) => { const r = st.det[id]; return !r ? '<small style="color:var(--dim)">checking…</small>' : r.installed ? `<small style="color:#9be3a8">✓ installed ${r.version || ""}</small>` : '<small style="color:#ffb0a8">not installed</small>'; };
+  async function finish(start) {
+    const body = { provider: st.provider, assistant_mode: st.mode, setup_done: true };
+    if (st.provider === "custom") body.assistant_cmd = st.command;
+    const r = await api("/api/settings", body);
+    if (!r.ok) { box.insertAdjacentHTML("afterbegin", `<p style="color:#ffb0a8">${r.error}</p>`); return; }
+    d.close();
+    if (start) { await api("/api/assistant/start", {}); say("Starting the assistant…"); }
+  }
+  function render() {
+    const p = get(st.provider);
+    if (st.step === 0) {
+      box.innerHTML = `<h3 style="margin:0 0 6px">Welcome</h3>${tourHtml()}${nav(false, true, "Connect an AI assistant ▸")}`;
+    } else if (st.step === 1) {
+      box.innerHTML = `<h3 style="margin:0 0 6px">Which AI do you use?</h3><p style="color:var(--dim)">The assistant edits the models when you ask in the chat. Pick the subscription you already have.</p>` +
+        pr.providers.map((q) => `<label style="display:block;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin:4px 0;cursor:pointer"><input type="radio" name="wzp" value="${q.id}" ${q.id === st.provider ? "checked" : ""}> <b>${q.name}</b> ${q.id === "custom" ? "" : badge(q.id)}<br><small style="color:var(--dim)">${q.subscription}</small></label>`).join("") + nav(true, true);
+      box.querySelectorAll("input[name=wzp]").forEach((i) => (i.onchange = () => { st.provider = i.value; st.mode = recommendedMode(get(i.value)); }));
+    } else if (st.step === 2) {
+      const r = st.det[p.id];
+      box.innerHTML = `<h3 style="margin:0 0 6px">Sign in: ${p.name}</h3>` + (p.id === "custom" ? `<label>Command <small style="color:var(--dim)">{prompt} is replaced by the message, otherwise it is added at the end</small><input type="text" id="wz-cmd" value="${st.command.replace(/"/g, "&quot;")}" placeholder="myagent --yes"></label>` :
+        `<p>${r?.installed ? `<span style="color:#9be3a8">✓ Found ${r.path} ${r.version || ""}</span>` : `<span style="color:#ffb0a8">Not found on this computer.</span> Install it first:<br><code>${p.install}</code>`}</p>`) +
+        `<p><b>Sign in</b></p><ol style="margin:4px 0 8px 18px;padding:0">${p.login.map((l) => `<li>${l}</li>`).join("")}</ol><p style="color:var(--dim)">Needs: ${p.subscription}.</p>` + (p.id === "custom" ? "" : '<p><span class="btn" id="wz-recheck">Check again</span></p>') + nav(true, true);
+      const c = box.querySelector("#wz-cmd"); if (c) c.oninput = () => { st.command = c.value; };
+      const rc = box.querySelector("#wz-recheck"); if (rc) rc.onclick = () => api("/api/providers/test", { id: p.id }).then((x) => { st.det[p.id] = x; render(); });
+    } else if (st.step === 3) {
+      box.innerHTML = `<h3 style="margin:0 0 6px">How should it answer?</h3>
+        <label style="display:block;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin:4px 0;cursor:pointer"><input type="radio" name="wzm" value="message" ${st.mode === "message" ? "checked" : ""}> <b>Once per message</b> ${p.listens ? "" : "(recommended)"}<br><small style="color:var(--dim)">Every chat message runs the agent once. Works with any agent and costs the same however long the project is: nothing from earlier messages is resent.</small></label>
+        <label style="display:block;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin:4px 0;cursor:pointer"><input type="radio" name="wzm" value="session" ${st.mode === "session" ? "checked" : ""}> <b>Live session</b> ${p.listens ? "(recommended)" : ""}<br><small style="color:var(--dim)">An interactive agent in a terminal listens to the chat and remembers the conversation. Richer for long work, but its context grows (Clear chat resets it).</small></label>` + nav(true, true);
+      box.querySelectorAll("input[name=wzm]").forEach((i) => (i.onchange = () => { st.mode = i.value; }));
+    } else {
+      box.innerHTML = `<h3 style="margin:0 0 6px">Ready</h3><p>${summary(p, st.mode, { command: st.command })}</p><p style="color:var(--dim)">Change this any time in Settings, or run the wizard again from Help ▸ Set up the AI assistant. Help ▸ What can cadchat do? shows the tour again.</p>
+        <div class="mbtns"><span class="btn" id="wz-back">Back</span><span class="btn" id="wz-save">Save</span><span class="btn on" id="wz-start">Save and start the assistant</span></div>`;
+      box.querySelector("#wz-save").onclick = () => finish(false);
+      box.querySelector("#wz-start").onclick = () => finish(true);
+    }
+    box.querySelector("#wz-back")?.addEventListener("click", () => { st.step--; render(); });
+    box.querySelector("#wz-skip")?.addEventListener("click", async () => { await api("/api/settings", { setup_done: true }); d.close(); });
+    box.querySelector("#wz-next")?.addEventListener("click", () => {
+      if (st.step === 2 && !canContinue(p, st.command)) { box.insertAdjacentHTML("afterbegin", '<p style="color:#ffb0a8">Enter the command of your agent first.</p>'); return; }
+      st.step++; render();
+    });
+  }
+  render();
+}
+async function firstStart() {
+  try {
+    const [c, a] = await Promise.all([api("/api/settings"), api("/api/assistant")]);
+    if (needsWizard(c, a)) wizard();
+    else if (!c.setup_done) api("/api/settings", { setup_done: true });             // an assistant is already listening: nothing to set up
+  } catch (e) { /* server restarting */ }
+}
+setTimeout(firstStart, 1500);

@@ -103,3 +103,54 @@ def test_damaged_lines_are_skipped(project):
     write_lines(project / ".cad" / "inbox.jsonl", user("ok"))
     w.poll()
     assert [json.loads(l)["id"] for l in out] == ["ok"]
+
+
+# ---- --once: for agents without a live watch tool (they call it in a loop) -------------------------------------------------------
+import threading
+import time
+
+
+def test_once_returns_the_unanswered_messages_at_once(tmp_path):
+    write_lines(tmp_path / ".cad" / "chat.jsonl", user("a", "old question"))
+    t = time.time()
+    got = cadwatch.wait_once(tmp_path, timeout=5, grace=0.1, poll=0.05)
+    assert [m["id"] for m in got] == ["a"] and got[0]["backlog"] is True and time.time() - t < 3
+
+
+def test_once_waits_for_a_new_message_and_batches_those_that_follow_closely(tmp_path):
+    (tmp_path / ".cad").mkdir()
+
+    def later():
+        time.sleep(0.3)
+        write_lines(tmp_path / ".cad" / "inbox.jsonl", user("n1", "first"))
+        time.sleep(0.1)
+        write_lines(tmp_path / ".cad" / "inbox.jsonl", user("n2", "second"))
+    th = threading.Thread(target=later)
+    th.start()
+    got = cadwatch.wait_once(tmp_path, timeout=5, grace=0.5, poll=0.05)
+    th.join()
+    assert [m["id"] for m in got] == ["n1", "n2"]
+
+
+def test_once_gives_up_after_the_timeout_with_nothing(tmp_path):
+    t = time.time()
+    assert cadwatch.wait_once(tmp_path, timeout=0.5, grace=0.1, poll=0.05) == [] and time.time() - t < 3
+
+
+def test_once_keeps_the_viewer_told_that_someone_listens_while_waiting(tmp_path):
+    cadwatch.wait_once(tmp_path, timeout=0.3, grace=0.1, poll=0.05)
+    hb = json.loads((tmp_path / ".cad" / "assistant.json").read_text(encoding="utf-8"))
+    assert hb["beat"] > 0
+
+
+def test_the_command_line_prints_json_lines_and_exits_3_when_nothing_came(tmp_path):
+    import os
+    import subprocess
+    import sys
+    (tmp_path / "cadproject.json").write_text('{"name": "t"}', encoding="utf-8")
+    env = {**os.environ, "CADCHAT_ROOT": str(tmp_path)}
+    r = subprocess.run([sys.executable, str(cadwatch.HERE / "cadwatch.py"), "--once", "--timeout", "0.5"], env=env, capture_output=True, text=True)
+    assert r.returncode == 3 and r.stdout == ""
+    write_lines(tmp_path / ".cad" / "chat.jsonl", user("a", "hello"))
+    r = subprocess.run([sys.executable, str(cadwatch.HERE / "cadwatch.py"), "--once", "--timeout", "5"], env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and json.loads(r.stdout.splitlines()[0])["text"] == "hello"

@@ -46,7 +46,7 @@ def test_a_damaged_file_falls_back_to_defaults(home):
 
 def test_launcher_uses_the_saved_agent_and_terminal_unless_the_environment_overrides(tmp_path, monkeypatch):
     import launcher
-    settings.save({"assistant_cmd": "myagent --x", "terminal": "xterm -e"})
+    settings.save({"provider": "custom", "assistant_cmd": "myagent --x", "terminal": "xterm -e"})
     assert launcher.assistant_argv(tmp_path)[:2] == ["myagent", "--x"]
     assert launcher.terminal_argv(["a"]) == ["xterm", "-e", "a"]
     monkeypatch.setenv("CADCHAT_ASSISTANT_CMD", "other")
@@ -57,3 +57,17 @@ def test_launcher_uses_the_saved_agent_and_terminal_unless_the_environment_overr
 def test_projects_dir_is_expanded():
     settings.save({"projects_dir": "~/work/cad"})
     assert str(settings.projects_dir()).endswith("work/cad") and "~" not in str(settings.projects_dir())
+
+
+def test_provider_and_mode_are_validated():
+    s = settings.save({"provider": "copilot", "assistant_mode": "message", "setup_done": True})
+    assert s["provider"] == "copilot" and s["assistant_mode"] == "message" and s["setup_done"] is True
+    for bad in ({"provider": "skynet"}, {"assistant_mode": "always"}, {"setup_done": "yes"}):
+        with pytest.raises(ValueError):
+            settings.save(bad)
+    assert settings.load()["provider"] == "copilot"
+
+
+def test_defaults_start_with_claude_in_session_mode_and_an_unfinished_setup():
+    s = settings.load()
+    assert (s["provider"], s["assistant_mode"], s["setup_done"]) == ("claude", "session", False)

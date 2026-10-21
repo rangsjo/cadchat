@@ -10,11 +10,13 @@ import json
 import os
 import shlex
 import signal
+import sys
 import shutil
 import subprocess
 import time
 from pathlib import Path
 
+import providers
 import settings
 
 APP = Path(__file__).resolve().parent.parent
@@ -62,10 +64,21 @@ def uninstall(apps_dir=None):
 
 
 def assistant_argv(project):
-    cmd = shlex.split(os.environ.get("CADCHAT_ASSISTANT_CMD") or settings.load()["assistant_cmd"])
-    prompt = (f"Start a cadchat session for the project at {project}: follow the cad-viewer skill (start the viewer if it is not running, "
-              f"arm the message watch with CADCHAT_ROOT={project}, then wait for popup messages and answer them).")
+    """The interactive agent (the chosen provider, or CADCHAT_ASSISTANT_CMD) with the prompt that makes it listen."""
+    s = settings.load()
+    env = os.environ.get("CADCHAT_ASSISTANT_CMD")
+    cmd = shlex.split(env) if env else providers.interactive_argv(s["provider"], s["assistant_cmd"])
+    prompt = (f"Start a cadchat session for the project at {project}: follow AGENTS.md (the cad-viewer skill in .claude/skills for Claude Code): "
+              f"start the viewer if it is not running, then listen for popup messages with CADCHAT_ROOT={project} (Monitor on tools/cadwatch.py where "
+              f"you have it, otherwise run `.venv/bin/python tools/cadwatch.py --once` in a loop) and answer them with tools/cadreply.py.")
     return cmd + [prompt]
+
+
+def start_argv(project):
+    """What "Start assistant" runs: the interactive agent, or in message mode the bridge that runs the agent once per chat message."""
+    if settings.load()["assistant_mode"] == "message" and not os.environ.get("CADCHAT_ASSISTANT_CMD"):
+        return [sys.executable, str(APP / "tools" / "cadchat.py"), "--project", str(project), "bridge"]
+    return assistant_argv(project)
 
 
 def terminal_argv(cmd):
@@ -88,9 +101,10 @@ def pidfile(project):
 def _is_assistant(pid):
     """True if the process is an assistant started by us (its command line carries our start prompt); never trust a bare pid file."""
     try:
-        return "cadchat session" in Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+        text = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
     except OSError:
         return False
+    return "cadchat session" in text or ("cadchat.py" in text and "bridge" in text.split("\0"))
 
 
 def _stop_watch(project):
@@ -145,5 +159,5 @@ def start_assistant(project, min_gap=20):
     stamp.write_text(json.dumps({"at": now}), encoding="utf-8")
     kw = {"start_new_session": True} if os.name != "nt" else {}
     pidfile(project).unlink(missing_ok=True)
-    subprocess.Popen(terminal_argv(["sh", "-c", WRAP, str(pidfile(project)), *assistant_argv(project)]), cwd=APP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+    subprocess.Popen(terminal_argv(["sh", "-c", WRAP, str(pidfile(project)), *start_argv(project)]), cwd=APP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
     return "started"

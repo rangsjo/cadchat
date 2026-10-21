@@ -62,7 +62,7 @@ test("Assistant: start is only offered while nobody listens", () => {
 
 test("Help has the quick start, shortcuts and about", () => {
   const ids = flatten(menu(buildMenus(base), "Help").items).map((i) => i.id);
-  for (const id of ["help:start", "help:keys", "help:resume", "help:about"]) assert.ok(ids.includes(id), id);
+  for (const id of ["help:tour", "help:wizard", "help:start", "help:keys", "help:resume", "help:about"]) assert.ok(ids.includes(id), id);
 });
 
 test("every actionable item has an id and a label; ids are unique", () => {

@@ -61,6 +61,14 @@ The model switcher lists every model of the project, the chat shows the whole co
 Chat replies only flow while an assistant session runs `tools/cadwatch.py`; the badge shows "Assistant away" when none does, and
 your messages wait (state "queued") until one starts.
 
+### The AI assistant: any provider
+
+The chat talks to an AI **agent** you already have: Claude Code (Claude Pro/Max subscription or API key), GitHub Copilot CLI (any Copilot plan), OpenAI Codex CLI
+(ChatGPT plan or API key), Gemini CLI, or any command line agent that can edit files and run commands. On the first start a short wizard shows what cadchat can do, finds the
+agents installed on your machine, explains the sign-in and lets you choose how it answers: **once per message** (cheapest, works with every agent, nothing from earlier messages
+is resent) or a **live session**. Run it again from **Help ▸ Set up the AI assistant**; the setup steps for each provider are in [docs/ASSISTANTS.md](docs/ASSISTANTS.md) and the rules
+every agent follows are in [AGENTS.md](AGENTS.md). From a shell: `./cadchat bridge` (per-message mode) and `./cadchat assistant`.
+
 ### On the phone, in the workshop
 
 ```bash

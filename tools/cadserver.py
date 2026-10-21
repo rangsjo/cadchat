@@ -27,6 +27,7 @@ import history
 import joints
 import launcher
 import projects
+import providers
 import settings
 import share
 import usage
@@ -439,6 +440,11 @@ def make_handler(app):
             if p == "/api/usage":
                 dirs = [d.strip() for d in settings.load()["usage_dirs"].split(",") if d.strip()]
                 return self._json(usage.collect(app.root, dirs=dirs or None))
+            if p == "/api/providers":
+                s = settings.load()
+                keep = ("id", "name", "binary", "listens", "subscription", "install", "login", "agent_file")
+                return self._json({"providers": [{k: v for k, v in pr.items() if k in keep} for pr in providers.catalog()],
+                                   "current": {k: s[k] for k in ("provider", "assistant_mode", "setup_done")}})
             if p == "/api/library":
                 return self._json(projects.library_list())
             if p == "/api/joints":
@@ -484,6 +490,11 @@ def make_handler(app):
                 vals = {str(k): float(v) for k, v in (body.get("values") or {}).items()}
                 if p == "/api/check":
                     return self._json({"ok": True, "collisions": app.check(body.get("m"), vals)})
+                if p == "/api/providers/test":
+                    try:
+                        return self._json({"ok": True, **providers.detect(str(body.get("id")))})
+                    except KeyError:
+                        raise Problem(200, "unknown provider")
                 if p == "/api/chat/clear":
                     return self._json(app.clear_chat())
                 if p == "/api/share/build":

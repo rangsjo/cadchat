@@ -1,6 +1,8 @@
 """User settings, kept in <CADCHAT_HOME or ~/.config/cadchat>/settings.json (shared by all projects).
 
-assistant_cmd   the agent started by "Start assistant" (default: claude), terminal: how to open a terminal for it ("" = first one found),
+provider        which agent: claude, copilot, codex, gemini or custom (tools/providers.py); assistant_mode: session (interactive agent that listens) or message
+                (the bridge runs the agent once per message); setup_done: the first-start wizard was completed;
+assistant_cmd   the command of a custom agent (provider custom), terminal: how to open a terminal for it ("" = first one found),
 projects_dir    where new projects are created, clearance: default glue gap for joints (mm), auto_open_chat: pop the chat open on a reply,
 usage_dirs      folders with Claude Code transcripts to read token usage from ("" = all of ~/.claude/projects that mention the project),
 export_dir      where exports are written ("" = the project's exports folder).
@@ -10,7 +12,7 @@ from pathlib import Path
 
 import projects
 
-DEFAULTS = {"assistant_cmd": "claude", "terminal": "", "projects_dir": "~/cad-projects", "clearance": 0.2, "auto_open_chat": True, "export_dir": "", "usage_dirs": ""}
+DEFAULTS = {"provider": "claude", "assistant_mode": "session", "setup_done": False, "assistant_cmd": "claude", "terminal": "", "projects_dir": "~/cad-projects", "clearance": 0.2, "auto_open_chat": True, "export_dir": "", "usage_dirs": ""}
 
 
 def _file():
@@ -36,9 +38,18 @@ def _check(k, v):
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 2:
             raise ValueError("clearance must be a number between 0 and 2 mm")
         return float(v)
-    if k == "auto_open_chat":
+    if k in ("auto_open_chat", "setup_done"):
         if not isinstance(v, bool):
-            raise ValueError("auto_open_chat must be true or false")
+            raise ValueError(f"{k} must be true or false")
+        return v
+    if k == "provider":
+        import providers
+        if v not in [p["id"] for p in providers.catalog()]:
+            raise ValueError("provider must be one of: " + ", ".join(p["id"] for p in providers.catalog()))
+        return v
+    if k == "assistant_mode":
+        if v not in ("session", "message"):
+            raise ValueError("assistant_mode must be 'session' (live interactive agent) or 'message' (one run per chat message)")
         return v
     if not isinstance(v, str) or len(v) > 300:
         raise ValueError(f"{k} must be text")

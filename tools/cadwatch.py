@@ -101,9 +101,37 @@ class Watcher:
         self._write_heartbeat(False)
 
 
+def wait_once(root, timeout=600, grace=1.0, poll=0.25, clock=time.time):
+    """Block until at least one message is waiting (unanswered ones count), collect those that follow within `grace` seconds, return the list.
+    For agents without a live watch tool: call it in a loop. Returns [] when nothing came within `timeout`."""
+    got = []
+    w = Watcher(root, out=lambda line: got.append(json.loads(line)), clock=clock)
+    w.start()
+    end, last_beat, first = clock() + timeout, 0.0, None
+    while True:
+        w.poll()
+        now = clock()
+        if got and first is None:
+            first = now
+        if first is not None and now - first >= grace:
+            return got
+        if first is None and now >= end:
+            return []
+        if now - last_beat >= 2:
+            w.beat()
+            last_beat = now
+        time.sleep(poll)
+
+
 def main():
     import projects
     root = projects.resolve_project()
+    if "--once" in sys.argv:
+        i = sys.argv.index("--timeout") if "--timeout" in sys.argv else -1
+        msgs = wait_once(root, timeout=float(sys.argv[i + 1]) if i >= 0 else 600)
+        for m in msgs:
+            print(json.dumps(m), flush=True)
+        raise SystemExit(0 if msgs else 3)
     w = Watcher(root, out=lambda s: print(s, flush=True))
     w.start()
     last_beat = time.time()

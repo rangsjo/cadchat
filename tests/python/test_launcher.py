@@ -151,3 +151,40 @@ def test_stopping_also_ends_the_message_watch_the_assistant_left_behind(project,
         if watcher.poll() is None:
             watcher.kill()
         watcher.wait()
+
+
+# ---- providers and the per-message mode ----------------------------------------------------------------------------------------
+def test_the_chosen_provider_decides_the_interactive_command(tmp_path, monkeypatch):
+    import settings
+    monkeypatch.delenv("CADCHAT_ASSISTANT_CMD", raising=False)
+    settings.save({"provider": "copilot"})
+    argv = launcher.assistant_argv(tmp_path)
+    assert argv[0] == "copilot" and "AGENTS.md" in argv[-1] and "cadwatch.py --once" in argv[-1]
+    settings.save({"provider": "claude"})
+    assert launcher.assistant_argv(tmp_path)[0] == "claude"
+
+
+def test_message_mode_starts_the_bridge_instead_of_an_interactive_agent(project, monkeypatch):
+    import settings
+    monkeypatch.delenv("CADCHAT_ASSISTANT_CMD", raising=False)
+    settings.save({"provider": "custom", "assistant_cmd": "true", "assistant_mode": "message"})
+    argv = launcher.start_argv(project)
+    assert argv[1].endswith("cadchat.py") and argv[-1] == "bridge" and str(project) in argv
+    settings.save({"assistant_mode": "session"})
+    assert launcher.start_argv(project)[0] == "true"
+
+
+def test_the_bridge_started_from_the_viewer_can_be_stopped_like_an_agent(project, monkeypatch):
+    import settings
+    monkeypatch.delenv("CADCHAT_ASSISTANT_CMD", raising=False)
+    monkeypatch.delenv("CADCHAT_TERMINAL", raising=False)
+    monkeypatch.setattr(launcher.shutil, "which", lambda n: None)
+    (project / "cadproject.json").write_text('{"name": "t"}', encoding="utf-8")
+    settings.save({"provider": "custom", "assistant_cmd": "true", "assistant_mode": "message"})
+    assert launcher.start_assistant(project, min_gap=0) == "started"
+    pidfile = project / ".cad" / "assistant.pid"
+    assert wait_for(pidfile.exists)
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    assert wait_for(lambda: launcher._is_assistant(pid), tries=100)
+    assert launcher.stop_assistant(project) == "stopped"
+    assert wait_for(lambda: not alive(pid))
