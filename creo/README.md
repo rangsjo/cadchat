@@ -15,10 +15,10 @@ First run: installs Python 3.12 and a JDK with `winget` if they are missing, bui
 finds your Creo, starts Creo if it is not running (use `--no-launch` to only attach), starts cadchat, connects and opens
 `http://127.0.0.1:8765/#creo`. Leave the window open; Ctrl+C stops the link.
 
-From a fresh Windows machine (once this branch is on GitHub):
+From a fresh Windows machine:
 
 ```bat
-winget install -e --id Git.Git && git clone -b experimental/creo https://github.com/rangsjo/cadchat && cadchat\creo\start.cmd
+winget install -e --id Git.Git && git clone https://github.com/rangsjo/cadchat && cadchat\creo\start.cmd
 ```
 
 Check without starting anything, with a concrete fix for every problem:

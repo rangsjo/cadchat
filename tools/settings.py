@@ -4,6 +4,7 @@ provider        which agent: claude, copilot, codex, gemini or custom (tools/pro
                 (the bridge runs the agent once per message); setup_done: the first-start wizard was completed;
 assistant_cmd   the command of a custom agent (provider custom), terminal: how to open a terminal for it ("" = first one found),
 projects_dir    where new projects are created, clearance: default glue gap for joints (mm), auto_open_chat: pop the chat open on a reply,
+plugins         optional features to show, comma separated (creo), see tools/plugins.py;
 usage_dirs      folders with Claude Code transcripts to read token usage from ("" = all of ~/.claude/projects that mention the project),
 export_dir      where exports are written ("" = the project's exports folder).
 Environment variables CADCHAT_ASSISTANT_CMD and CADCHAT_TERMINAL still override the file."""
@@ -12,7 +13,7 @@ from pathlib import Path
 
 import projects
 
-DEFAULTS = {"provider": "claude", "assistant_mode": "session", "setup_done": False, "assistant_cmd": "claude", "terminal": "", "projects_dir": "~/cad-projects", "clearance": 0.2, "auto_open_chat": True, "export_dir": "", "usage_dirs": ""}
+DEFAULTS = {"provider": "claude", "assistant_mode": "session", "setup_done": False, "assistant_cmd": "claude", "terminal": "", "projects_dir": "~/cad-projects", "clearance": 0.2, "auto_open_chat": True, "export_dir": "", "usage_dirs": "", "plugins": ""}
 
 
 def _file():
@@ -42,6 +43,12 @@ def _check(k, v):
         if not isinstance(v, bool):
             raise ValueError(f"{k} must be true or false")
         return v
+    if k == "plugins":
+        import plugins
+        names = [n.strip() for n in v.split(",") if n.strip()] if isinstance(v, str) else None
+        if names is None or any(n not in plugins.KNOWN for n in names):
+            raise ValueError("plugins: a comma separated list of: " + ", ".join(plugins.KNOWN))
+        return ",".join(names)
     if k == "provider":
         import providers
         if v not in [p["id"] for p in providers.catalog()]:

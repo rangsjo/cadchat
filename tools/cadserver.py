@@ -22,9 +22,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import cadchat
+import creo_api
 import history
 import joints
 import launcher
+import plugins
 import projects
 import providers
 import settings
@@ -339,40 +341,15 @@ class App:
             later = [x.get("role") for x in msgs[i + 1:]]
             m["state"] = "answered" if "assistant" in later else "queued" if m.get("id") not in seen else "working" if "status" in later else "seen"
         return msgs
-    # ---- Creo link (state and commands are files shared with tools/creolink.py) --------------------------------
+    # ---- plugins ----------------------------------------------------------------------------------------------
     def creo_state(self):
-        f = self.cad / "creo" / "state.json"
-        if not f.exists():
-            return {"connected": False, "running": False}
-        try:
-            st = json.loads(f.read_text(encoding="utf-8"))
-        except ValueError:
-            return {"connected": False, "running": False}
-        st["running"] = time.time() - float(st.get("updated", 0)) < 15      # the link rewrites the state every couple of seconds
-        if not st["running"]:
-            st["connected"] = False
-        return st
+        return creo_api.state(self.cad)
 
     def creo_command(self, d):
-        cmd = d.get("cmd")
-        if cmd not in ("sync", "set", "regenerate", "auto_sync"):
-            raise Problem(400, "unknown command")
-        out = {"cmd": cmd, "id": secrets.token_hex(4)}
-        if cmd == "set":
-            name, value = d.get("name"), d.get("value")
-            if not isinstance(name, str) or not 0 < len(name) <= 80 or not name.isprintable():
-                raise Problem(400, "bad parameter name")
-            if isinstance(value, bool) or not isinstance(value, (int, float, str)) or (isinstance(value, str) and len(value) > 200):
-                raise Problem(400, "value must be a number or a short text")
-            out.update(name=name, value=value)
-        if cmd == "auto_sync":
-            if not isinstance(d.get("value"), bool):
-                raise Problem(400, "auto_sync needs true or false")
-            out["value"] = d["value"]
-        (self.cad / "creo").mkdir(exist_ok=True)
-        with open(self.cad / "creo" / "commands.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(out) + "\n")
-        return {"ok": True, "id": out["id"]}
+        try:
+            return creo_api.command(self.cad, d)
+        except creo_api.BadCommand as e:
+            raise Problem(400, str(e))
 
     # ---- chat -----------------------------------------------------------------------------------------------
     def message(self, d):
@@ -478,6 +455,8 @@ def make_handler(app):
                 return self._json(joints.catalog(t))
             if p == "/api/assistant":
                 return self._json(app.assistant_state())
+            if p == "/api/features":
+                return self._json({"plugins": plugins.enabled(app.root), "available": plugins.available()})
             if p == "/api/creo":
                 return self._json(app.creo_state())
             if p == "/api/chat":

@@ -491,13 +491,34 @@ addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- tabs
-document.querySelectorAll("#tabs div").forEach((t) => (t.onclick = () => {
-  document.querySelectorAll("#tabs div").forEach((x) => x.classList.toggle("on", x === t));
-  document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("on", p.id === "p-" + t.dataset.p));
-  activeTab = t.dataset.p;
-  setLayout(activeTab === "make");
-  updateKin();
-}));
+function wireTab(t) {
+  t.onclick = () => {
+    document.querySelectorAll("#tabs div").forEach((x) => x.classList.toggle("on", x === t));
+    document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("on", p.id === "p-" + t.dataset.p));
+    activeTab = t.dataset.p;
+    setLayout(activeTab === "make");
+    updateKin();
+  };
+}
+document.querySelectorAll("#tabs div").forEach(wireTab);
+/** A plugin adds its own tab and pane to the side panel; returns the tab element. */
+function addTab(id, label, paneHtml) {
+  const t = document.createElement("div");
+  t.dataset.p = id; t.textContent = label;
+  $("tabs").appendChild(t);
+  const pane = document.createElement("div");
+  pane.className = "pane"; pane.id = "p-" + id; pane.innerHTML = paneHtml;
+  $("tabs").parentElement.appendChild(pane);
+  wireTab(t);
+  return t;
+}
+async function loadPlugins() {
+  try {
+    const f = await (await fetch("/api/features")).json();
+    for (const name of f.plugins) (await import(`./plugins/${name}.js`)).mount({ addTab, switchModel, say, api });
+  } catch (e) { /* the server is restarting or a plugin failed: the viewer works without it */ }
+}
+setTimeout(loadPlugins, 0);
 
 // ---------------------------------------------------------------- pose: presets + sliders + collisions
 function buildPoseUI() {
@@ -1382,54 +1403,6 @@ $("modelRebuild").onclick = async () => {
   const r = await (await fetch("/api/build", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify({ script: curModel }) })).json();
   $("modelStat").textContent = r.ok ? "Rebuilt." : "Build failed: " + r.error;
 };
-// ---------------------------------------------------------------- Creo link (experimental)
-let creoState = null, creoSig = "";
-async function creoPoll() {
-  try { creoState = await (await fetch("/api/creo")).json(); } catch (e) { return; }
-  const c = creoState, sig = JSON.stringify([c.running, c.connected, c.model, c.params, c.last_result, c.last_error, c.auto_sync]);
-  if (sig === creoSig) return;                       // nothing changed: keep the inputs the user may be typing in
-  creoSig = sig;
-  const stat = $("creoStat");
-  if (!c.running) {
-    stat.innerHTML = `<span class="dot" style="background:#9aa0a6"></span>Link not running. Start it on the Windows machine with Creo: <code>creo\\start.cmd</code> (see creo/README.md).`;
-    $("creoBox").style.display = "none";
-    return;
-  }
-  stat.innerHTML = c.connected ? `<span class="dot" style="background:#6bd66b"></span>Connected to Creo` : `<span class="dot" style="background:#e06666"></span>Link running, Creo not connected`;
-  if (c.last_error) stat.innerHTML += `<div style="color:#ffb0a8;margin-top:4px">${c.last_error.replace(/</g, "&lt;")}</div>`;
-  $("creoBox").style.display = c.connected ? "block" : "none";
-  if (!c.connected) return;
-  $("creoModel").textContent = c.model ?? "(no model open)";
-  $("creoShow").style.display = c.model_id ? "" : "none";
-  $("creoAuto").checked = !!c.auto_sync;
-  const host = $("creoParams");
-  host.innerHTML = "";
-  (c.params || []).filter((p) => p.kind !== "note").forEach((p) => {
-    const d = document.createElement("div");
-    d.className = "creo-row";
-    d.innerHTML = `<span>${p.name}<small>${p.kind}${p.type && p.type !== "double" ? " · " + p.type : ""}</small></span><input ${p.type === "string" ? 'type="text"' : 'type="number" step="any"'} value="${String(p.value ?? "").replace(/"/g, "&quot;")}"><span class="btn" title="Set in Creo, regenerate, sync">Set</span>`;
-    const inp = d.querySelector("input"), go = () => creoCmd({ cmd: "set", name: p.name, value: p.type === "string" ? inp.value : +inp.value });
-    d.querySelector(".btn").onclick = go;
-    inp.onkeydown = (e) => { if (e.key === "Enter") go(); };
-    host.appendChild(d);
-  });
-  const r = c.last_result;
-  $("creoRes").textContent = r ? `${r.ok ? "✓" : "✗"} ${r.cmd}: ${r.message}` : "";
-  $("creoRes").style.color = r && !r.ok ? "#ffb0a8" : "";
-}
-async function creoCmd(body) {
-  $("creoRes").textContent = "working…";
-  creoSig = "";                                       // force a redraw when the result arrives
-  const r = await (await fetch("/api/creo/command", { method: "POST", headers: { "Content-Type": "application/json", "X-CAD-Token": window.CAD_TOKEN }, body: JSON.stringify(body) })).json();
-  if (!r.ok) $("creoRes").textContent = "✗ " + r.error;
-}
-$("creoSync").onclick = () => creoCmd({ cmd: "sync" });
-$("creoRegen").onclick = () => creoCmd({ cmd: "regenerate" });
-$("creoAuto").onchange = (e) => creoCmd({ cmd: "auto_sync", value: e.target.checked });
-$("creoShow").onclick = () => { const id = creoState?.model_id; if (id) switchModel(id); };
-setInterval(creoPoll, 2000);
-creoPoll();
-if (location.hash === "#creo") document.querySelector('#tabs [data-p="creo"]').click();
 
 setInterval(poll, 1500);
 poll();
@@ -1510,14 +1483,16 @@ function settingsDialog() {
     dialog("Settings", [sel("provider", "AI assistant", pr.providers.map((p) => [p.id, p.name])), sel("assistant_mode", "How it answers", [["message", "Once per message (cheapest, any agent)"], ["session", "Live session (keeps its context)"]]),
       f("assistant_cmd", "Command of your own agent", "text", "only for 'Another agent'; {prompt} is replaced by the message"), `<p><span class="btn" id="openWizard">Setup wizard…</span></p>`,
       f("terminal", "Terminal command", "text", "empty = first terminal found, e.g. gnome-terminal --"), f("projects_dir", "Folder for new projects"), f("clearance", "Default glue gap for joints (mm)", "number"),
-      f("auto_open_chat", "Open the chat when I select a part or the assistant answers", "checkbox"), `<p style="color:var(--dim)">Saved for all projects in ~/.config/cadchat/settings.json.</p>`].join(""), [
+      f("auto_open_chat", "Open the chat when I select a part or the assistant answers", "checkbox"),
+      `<label><input type="checkbox" data-plugin="creo" ${(c.plugins || "").split(",").includes("creo") ? "checked" : ""}> Creo Parametric link tab <small style="color:var(--dim)">(Windows, experimental; shows by itself while the link runs)</small></label>`, `<p style="color:var(--dim)">Saved for all projects in ~/.config/cadchat/settings.json.</p>`].join(""), [
       { label: "Cancel" },
       { label: "Save", primary: true, onClick: async (c2) => {
         const body = {};
         c2.querySelectorAll("[data-k]").forEach((i) => { body[i.dataset.k] = i.type === "checkbox" ? i.checked : i.type === "number" ? +i.value : i.value; });
+        body.plugins = [...c2.querySelectorAll("[data-plugin]")].filter((i) => i.checked).map((i) => i.dataset.plugin).join(",");
         const r = await api("/api/settings", body);
         if (!r.ok) { c2.querySelector("p:last-child").textContent = r.error; c2.querySelector("p:last-child").style.color = "#ffb0a8"; return false; }
-        autoOpenChat = !!r.settings.auto_open_chat; say("Settings saved");
+        autoOpenChat = !!r.settings.auto_open_chat; say(r.settings.plugins !== c.plugins ? "Settings saved: reload the page to show or hide plugin tabs" : "Settings saved");
       } }]).content.querySelector("#openWizard").onclick = () => { document.querySelectorAll(".modal").forEach((m) => m.remove()); wizard(); };
   });
 }

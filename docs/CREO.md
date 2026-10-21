@@ -3,6 +3,30 @@
 **Short answer:** yes, through files, and it is simple. A live, parametric link needs PTC's customization APIs and a Creo
 licence; that part is described below but not built or tested.
 
+## How the live link works
+
+cadchat does not replace Creo and Creo does not replace build123d. The parametric model stays in Creo (features, relations); the link only moves parameters in
+and geometry out. build123d scripts, joints, presets and collision checks are untouched and keep working next to it.
+
+```
+Creo Parametric (Windows)  <--J-Link async-->  creo/bridge/CreoBridge.java  <--JSON lines-->  tools/creolink.py  <--files-->  cadchat server  <--HTTP-->  viewer (Creo tab)
+```
+
+- **Java bridge** (`CreoBridge.java`): attaches to the running Creo through PTC's J-Link asynchronous connection (needs the J-Link component of a normal Creo licence). It lists the
+  model's user parameters and dimensions, sets a value, regenerates and exports STEP.
+- **Python link** (`tools/creolink.py`): starts the bridge, mirrors Creo's state into `.cad/creo/state.json` and executes the commands the viewer queues in `.cad/creo/commands.jsonl`.
+  A sync loop notices when the model changed in Creo.
+- **Viewer to Creo:** in the Creo tab you change a parameter (for example `LENGTH`) and press Set. Creo regenerates, the link exports STEP into the watched folder, cadchat imports it as a
+  model (`exchange.import_to_model`) and the viewer shows the new geometry, usually within seconds.
+- **Creo to viewer:** edit in Creo; with auto-sync on, the same export and import runs by itself.
+- **What the imported model is:** a static, named mesh model from STEP: measure, section, cut list, print plates and chat work; it has no joints. For a mechanism around a Creo part,
+  write a build123d script that uses the imported geometry as a reference part.
+- **Limits:** Creo allows one session for this kind of connection and must be idle (no dialog open) for API calls. Features, constraints and relations never leave Creo.
+- **Status:** written against PTC's documentation and tested with stubs only (`tests/creo/stubs`, `tests/python/test_creolink.py`, `test_creo_e2e.py`). Expect fixes on the first real Creo.
+
+The Creo tab is an optional plugin (`tools/plugins.py`): it shows when "Creo Parametric link tab" is ticked in Settings, or by itself while the link is running.
+Without it the viewer is unchanged and nothing else depends on Creo.
+
 ## What works now (file exchange, STEP first)
 
 | Direction | How | Result |

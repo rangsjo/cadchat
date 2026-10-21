@@ -561,3 +561,11 @@ def test_creo_commands_are_validated(server, body):
 
 def test_creo_commands_need_the_token(server):
     assert server.call("POST", "/api/creo/command", {"cmd": "sync"}, token=None)[0] == 403
+
+
+def test_features_lists_what_the_viewer_should_show(server):
+    import settings
+    s, r = server.call("GET", "/api/features")
+    assert r["plugins"] == [] and [p["id"] for p in r["available"]] == ["creo"]
+    settings.save({"plugins": "creo"})
+    assert server.call("GET", "/api/features")[1]["plugins"] == ["creo"]
